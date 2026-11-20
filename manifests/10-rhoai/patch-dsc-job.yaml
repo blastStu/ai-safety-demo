@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: patch-datasciencecluster
+  namespace: redhat-ods-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: patch-dsc
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Patching DataScienceCluster default-dsc to V1.1 set (aipipelines, kserve, trustyai, mlflowoperator Managed)"
+              oc patch datasciencecluster default-dsc --type=merge --patch-file=/manifests/dsc-patch.yaml
+              echo "Patched DSC"
+              # also patch dashboard
+              oc patch odhdashboardconfig odh-dashboard-config -n redhat-ods-applications --type=merge --patch-file=/manifests/odhdashboardconfig-patch.yaml
+              echo "Patched OdhDashboardConfig"
+          volumeMounts:
+            - name: manifests
+              mountPath: /manifests
+      volumes:
+        - name: manifests
+          configMap:
+            name: dsc-patches
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dsc-patches
+  namespace: redhat-ods-operator
+data:
+  dsc-patch.yaml: |
+    spec:
+      components:
+        aipipelines:
+          managementState: Managed
+        kserve:
+          managementState: Managed
+          rawDeploymentServiceConfig: Headless
+          nim:
+            managementState: Removed
+          wva:
+            managementState: Removed
+          modelsAsService:
+            managementState: Removed
+        trustyai:
+          managementState: Managed
+        mlflowoperator:
+          managementState: Managed
+        kueue:
+          managementState: Removed
+  odhdashboardconfig-patch.yaml: |
+    spec:
+      dashboardConfig:
+        disableLMEval: false
+        externalModels: true
