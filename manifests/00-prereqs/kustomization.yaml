@@ -1,0 +1,6 @@
+# Layer 00 — prereq operators (must be Available before RHOAI DSC flips)
+# Apply: oc apply -k manifests/00-prereqs
+# Gate:  oc get csv -n openshift-cert-manager ; oc get csv -n kueue-system  (all Succeeded)
+resources:
+  - cert-manager
+  - kueue-operator

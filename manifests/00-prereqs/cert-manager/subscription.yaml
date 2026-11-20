@@ -1,0 +1,16 @@
+# Vendored from live packagemanifest — channel+CSV pinned on derive day.
+# Derive: CHANNEL=$(oc get packagemanifest openshift-cert-manager-operator -n openshift-marketplace -o jsonpath='{.status.defaultChannel}')
+#         CSV=$(oc get packagemanifest openshift-cert-manager-operator -n openshift-marketplace -o json | jq -r --arg c "$CHANNEL" '.status.channels[] | select(.name==$c) | .currentCSV')
+# Record channel/CSV + date + packagemanifest commit in docs/decisions.md.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-cert-manager-operator
+  namespace: openshift-cert-manager
+spec:
+  channel: stable-v1 # ← replace with derived defaultChannel (e.g. stable-v1)
+  name: openshift-cert-manager-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Manual
+  # startingCSV: openshift-cert-manager-operator.v1.14.0 # ← pin to derived CSV once known

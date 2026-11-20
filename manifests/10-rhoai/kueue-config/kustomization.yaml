@@ -1,0 +1,4 @@
+# Only needed if DSC kueue is Unmanaged and EvalHub reports "Configure queue".
+resources:
+  - clusterqueue.yaml
+  - localqueue-evalhub.yaml

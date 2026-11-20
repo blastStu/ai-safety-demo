@@ -1,0 +1,18 @@
+apiVersion: trustyai.opendatahub.io/v1
+kind: EvalHub
+metadata:
+  name: evalhub
+  namespace: evalhub
+spec:
+  replicas: 1
+  database:
+    type: postgresql
+    secret: evalhub-db-credentials # holds db-url=postgres://evalhub:pass@postgresql.evalhub.svc:5432/evalhub
+  providers:
+    - garak-kfp # KFP mode — orchestrated via DSPA (needs 20-dspa Ready). Simple garak + extra providers omitted for V1.1 lean.
+  collections:
+    - safety-and-fairness-v1
+  tenancy: single # platform namespace (evalhub) is not a tenant — matches removed tenant label above
+  env:
+    - name: MLFLOW_TRACKING_URI
+      value: https://mlflow.redhat-ods-applications.svc:8443/mlflow

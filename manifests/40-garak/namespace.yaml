@@ -1,0 +1,6 @@
+# evalhub is the platform namespace for V1.1 (hosts DSPA, Postgres, TrustyAIService, EvalHub) — not a tenant.
+# Do NOT label with evalhub.trustyai.opendatahub.io/tenant — that marks a tenant project that borrows a multi-tenant EvalHub.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: evalhub

@@ -1,0 +1,7 @@
+resources:
+  - namespace.yaml
+  - trustyaiservice.yaml
+  - evalhub.yaml
+  - external-model-secret.yaml
+  - abliterated-model-secret.yaml
+  - garak-pipeline-config.yaml

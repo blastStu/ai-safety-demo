@@ -1,0 +1,29 @@
+{
+  "kfp_config": {
+    "endpoint": "https://ds-pipeline-dspa.evalhub.svc.cluster.local:8888",
+    "namespace": "evalhub",
+    "s3_secret_name": "seaweedfs-evalhub-credentials",
+    "s3_endpoint": "http://seaweedfs.seaweedfs.svc:8333",
+    "s3_bucket": "evalhub",
+    "verify_ssl": false
+  },
+  "intents_models": {
+    "judge": {
+      "url": "https://YOUR_TARGET_MODEL/v1",
+      "name": "YOUR_TARGET_MODEL_NAME"
+    },
+    "evaluator": {
+      "url": "https://YOUR_TARGET_MODEL/v1",
+      "name": "YOUR_TARGET_MODEL_NAME"
+    },
+    "sdg": {
+      "url": "https://YOUR_ABLITERATED_MODEL/v1",
+      "name": "hosted_vllm/YOUR_ABLITERATED_MODEL_NAME"
+    },
+    "attacker": {
+      "url": "https://YOUR_ABLITERATED_MODEL/v1",
+      "name": "YOUR_ABLITERATED_MODEL_NAME"
+    }
+  },
+  "sdg_max_concurrency": 1
+}

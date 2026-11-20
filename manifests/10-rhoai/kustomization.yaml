@@ -1,0 +1,7 @@
+resources:
+  - rhods-operator
+  - dsc-patch.yaml
+  - odhdashboardconfig-patch.yaml
+  # optional layers — apply selectively:
+  # - dsci
+  # - kueue-config  # only if DSC kueue -> Unmanaged and ClusterQueue needed

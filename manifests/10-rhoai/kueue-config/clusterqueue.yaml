@@ -1,0 +1,19 @@
+# Template — size nominalQuota to the actual fleet (2× m5a.2xlarge = 16 CPU / 64Gi).
+# Include nvidia.com/gpu only when V1.3 adds GPUs.
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: default
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+    - coveredResources: ["cpu", "memory"]
+      flavors:
+        - name: default-flavor
+          resources:
+            - name: cpu
+              nominalQuota: "12"
+            - name: memory
+              nominalQuota: "48Gi"
+          # queues:
+          #   - name: default

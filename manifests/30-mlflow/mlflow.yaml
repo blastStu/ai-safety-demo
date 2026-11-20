@@ -1,0 +1,20 @@
+# Single MLflow instance per cluster — name MUST be "mlflow", namespace redhat-ods-applications.
+apiVersion: mlflow.opendatahub.io/v1
+kind: MLflow
+metadata:
+  name: mlflow
+  namespace: redhat-ods-applications
+spec:
+  # v1 requires explicit storage PVC when backendStoreUri is sqlite://… (3.5 migrated from v1alpha1)
+  # and defaultArtifactRoot when serveArtifacts is false (the default).
+  backendStoreUri: sqlite:////mlflow/mlflow.db # four slashes = absolute /mlflow where PVC mounts
+  artifactsDestination: s3://mlflow/artifacts
+  defaultArtifactRoot: s3://mlflow/artifacts
+  s3SecretName: mlflow-s3-credentials
+  replicas: 1
+  storage:
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 10Gi
+    # storageClassName left default (gp3-csi on ROSA) — matches DSC's own mlflow PVC

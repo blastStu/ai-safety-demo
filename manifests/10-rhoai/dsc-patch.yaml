@@ -1,0 +1,46 @@
+# Merge patch for DataScienceCluster/default-dsc
+# Apply: oc patch datasciencecluster default-dsc --type=merge --patch-file manifests/10-rhoai/dsc-patch.yaml
+# Or:  oc apply -k manifests/10-rhoai  (if using the Kustomize wrapper that includes this patch)
+apiVersion: datasciencecluster.opendatahub.io/v2
+kind: DataScienceCluster
+metadata:
+  name: default-dsc
+spec:
+  components:
+    dashboard:
+      managementState: Managed
+    workbenches:
+      managementState: Managed
+      workbenchNamespace: rhods-notebooks
+    aipipelines:
+      managementState: Managed
+    trustyai:
+      managementState: Managed
+    mlflowoperator:
+      managementState: Managed
+    # kueue: start Removed; promote to Unmanaged+ClusterQueue only if EvalHub needs it (see kueue-config/)
+    kueue:
+      managementState: Removed
+    # V1.1 lesson: TrustyAI requires the InferenceServices CRD — kserve must be Managed even on external-model (no-GPU) runs
+    kserve:
+      managementState: Managed
+      rawDeploymentServiceConfig: Headless
+      nim:
+        managementState: Removed
+      modelsAsService:
+        managementState: Removed
+      wva:
+        managementState: Removed
+    modelregistry:
+      managementState: Removed
+      registriesNamespace: rhoai-model-registries
+    ray:
+      managementState: Removed
+    trainer:
+      managementState: Removed
+    trainingoperator:
+      managementState: Removed
+    feastoperator:
+      managementState: Removed
+    llamastackoperator:
+      managementState: Removed

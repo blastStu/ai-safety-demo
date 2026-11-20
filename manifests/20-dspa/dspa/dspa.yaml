@@ -1,0 +1,24 @@
+# DSPA — DataSciencePipelinesApplication v1 (3.5 migrated from v1alpha1).
+# Derive stored version live: oc get crd datasciencepipelinesapplications.datasciencepipelines.openshift.io -o jsonpath='{.spec.versions[*].name}'
+apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
+kind: DataSciencePipelinesApplication
+metadata:
+  name: dspa
+  namespace: evalhub
+spec:
+  apiServer:
+    deploy: true
+  database:
+    mariaDB:
+      deploy: true
+      username: mlpipeline
+      pipelineDBName: mlpipeline
+  objectStorage:
+    externalStorage:
+      host: seaweedfs.seaweedfs.svc.cluster.local:8333 # internal S3 (fast readiness, no external Route TLS)
+      bucket: evalhub
+      scheme: http
+      s3CredentialsSecret:
+        secretName: seaweedfs-evalhub-credentials
+        accessKey: AWS_ACCESS_KEY_ID
+        secretKey: AWS_SECRET_ACCESS_KEY

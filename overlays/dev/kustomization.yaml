@@ -1,0 +1,3 @@
+# Dev overlay — environment-specific patches (e.g. ingress domain overrides) if needed.
+# For V1.1 this is intentionally empty — external endpoints are supplied via Secret, not Kustomize, to keep secrets out of git.
+resources: []

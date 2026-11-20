@@ -218,3 +218,23 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# Local working files — research notes, exported docs, captured cluster state.
+# These support the work but are not GitOps content and must not be committed.
+# ---------------------------------------------------------------------------
+
+# Project brief / handoff notes
+/AI-Safety-RHDP-Demo-Knowledge.md
+/HANDOFF.md
+
+# Exported platform documentation (exported copies get a " (2)" suffix)
+/HOWTO_ RHOAI engineering*.md
+
+# Captured RHDP cluster state. rhdp-cluster-details.yaml contains LIVE CREDENTIALS
+# (cluster-admin token, kubeadmin password, bastion and Keycloak passwords).
+/rhdp-cluster-details.yaml
+/datasciencecluster-default-dsc*.yaml
+
+# Scratch space for future local helper files (kubeconfigs, oc output, etc.)
+/local/

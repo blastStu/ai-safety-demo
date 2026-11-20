@@ -1,0 +1,4 @@
+resources:
+  - seaweedfs
+  - postgres
+  - dspa

@@ -1,0 +1,19 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: seaweedfs-s3
+  namespace: seaweedfs
+spec:
+  to: { kind: Service, name: seaweedfs }
+  port: { targetPort: s3 }
+  tls: { termination: edge }
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: seaweedfs-filer
+  namespace: seaweedfs
+spec:
+  to: { kind: Service, name: seaweedfs }
+  port: { targetPort: filer }
+  tls: { termination: edge }

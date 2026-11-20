@@ -1,0 +1,9 @@
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - secret.yaml
+  - filer-config.yaml
+  - deployment.yaml
+  - service.yaml
+  - routes.yaml
+  - bucket-job.yaml

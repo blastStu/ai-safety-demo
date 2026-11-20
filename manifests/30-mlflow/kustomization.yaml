@@ -1,0 +1,3 @@
+resources:
+  - mlflow.yaml
+  - s3-credentials.yaml

@@ -1,0 +1,9 @@
+# AllNamespaces installMode — empty spec (no targetNamespaces).
+# Verify live before pinning:
+#   oc get packagemanifest openshift-cert-manager-operator -n openshift-marketplace -o jsonpath='{.status.channels[0].currentCSVDesc.installModes}'
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: cert-manager-operatorgroup
+  namespace: openshift-cert-manager
+spec: {}

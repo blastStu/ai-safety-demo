@@ -1,0 +1,3 @@
+# RHDP overlay — applied only when testing via Field Sourced Content base item.
+# Minimal: ingress domain, Keycloak route naming, bastion-related patches if they diverge from ROSA.
+resources: []

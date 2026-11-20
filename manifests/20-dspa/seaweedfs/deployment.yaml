@@ -1,0 +1,39 @@
+# SeaweedFS S3 gateway — lightweight object storage for pipeline artifacts, accessed as s3:// via s3://seaweedfs-seaweedfs:8333.
+# Image is pinned by digest for reproducibility; it pulls without extra credentials on standard OpenShift.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seaweedfs
+  namespace: seaweedfs
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: seaweedfs }
+  template:
+    metadata:
+      labels: { app: seaweedfs }
+    spec:
+      containers:
+        - name: seaweedfs
+          image: ghcr.io/chrislusf/seaweedfs@sha256:6620371e8af8282056685c652d4637265698c9e2c2d59f9594e6ac333ad6c634
+          args: ["server", "-dir=/tmp", "-s3", "-iam", "-filer", "-master.volumePreallocate=false"]
+          ports:
+            - containerPort: 8333 # S3
+            - containerPort: 8888 # filer
+            - containerPort: 18888 # filer grpc
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: AWS_ACCESS_KEY_ID } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: AWS_SECRET_ACCESS_KEY } }
+          volumeMounts:
+            - { name: data, mountPath: /tmp }
+            - { name: filer-config, mountPath: /etc/seaweedfs/filer.toml, subPath: filer.toml }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            runAsNonRoot: true
+            seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: seaweedfs-pvc } }
+        - { name: filer-config, configMap: { name: seaweedfs-filer-config } }
