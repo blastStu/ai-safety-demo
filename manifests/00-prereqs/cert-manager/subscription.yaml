@@ -8,9 +8,9 @@ metadata:
   name: openshift-cert-manager-operator
   namespace: openshift-cert-manager
 spec:
-  channel: stable-v1 # ← replace with derived defaultChannel (e.g. stable-v1)
+  channel: stable-v1
   name: openshift-cert-manager-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
   installPlanApproval: Manual
-  # startingCSV: openshift-cert-manager-operator.v1.14.0 # ← pin to derived CSV once known
+  startingCSV: cert-manager-operator.v1.20.1

@@ -2,6 +2,8 @@ resources:
   - namespace.yaml
   - trustyaiservice.yaml
   - evalhub.yaml
-  - external-model-secret.yaml
-  - abliterated-model-secret.yaml
-  - garak-pipeline-config.yaml
+  - networkpolicy-allow-evalhub-to-dspa.yaml
+  - role-allow-job-read-s3.yaml
+# redteam-api-keys.template.yaml is a shape reference for the 7-key secret that holds external model tokens
+# and k8s_url/k8s_sa_token — create it imperatively per README.md Secrets (never commit real tokens).
+# garak-pipeline-config.yaml was removed — garak-kfp reads intents_models from the Benchmark parameters JSON (benchmarks/intents-garak-kfp.json), not a ConfigMap.

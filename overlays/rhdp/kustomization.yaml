@@ -1,3 +1,93 @@
-# RHDP overlay — applied only when testing via Field Sourced Content base item.
-# Minimal: ingress domain, Keycloak route naming, bastion-related patches if they diverge from ROSA.
-resources: []
+# RHDP overlay — the path the catalog item points at via field_content_gitops_repo_path.
+# It composes the same Kustomize bases as the imperative 00→04 scripts, in dependency order.
+# Sync waves ensure Argo respects the same ordering the scripts enforce with oc wait.
+resources:
+  - ../../manifests/00-prereqs
+  - ../../manifests/10-rhoai
+  - ../../manifests/20-dspa
+  - ../../manifests/30-mlflow
+  - ../../manifests/40-garak
+
+# Sync waves: Argo applies wave 0, waits for healthy, then wave 1, etc.
+# Wave 0 — OLM Subscriptions and OperatorGroups (CRDs must exist before DSC)
+# Wave 1 — rhods-operator and approve Jobs (operator CSVs must Succeed before DSC)
+# Wave 2 — DataScienceCluster and dashboard (depends on CRDs)
+# Wave 3 — SeaweedFS and Postgres (object storage and DB)
+# Wave 4 — DSPA (needs storage + DB)
+# Wave 5 — MLflow (needs S3)
+# Wave 6 — EvalHub garak-kfp (needs DSPA + MLflow)
+patches:
+  - target:
+      kind: Namespace
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "0"
+  - target:
+      kind: OperatorGroup
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "0"
+  - target:
+      kind: Subscription
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "0"
+  - target:
+      kind: Job
+      name: approve-installplan
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "1"
+  - target:
+      kind: DataScienceCluster
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "2"
+  - target:
+      kind: OdhDashboardConfig
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "2"
+  - target:
+      kind: Deployment
+      name: seaweedfs
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "3"
+  - target:
+      kind: PersistentVolumeClaim
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "3"
+  - target:
+      kind: DataSciencePipelinesApplication
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "4"
+  - target:
+      kind: MLflow
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "5"
+  - target:
+      kind: EvalHub
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "6"
+  - target:
+      kind: TrustyAIService
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "6"

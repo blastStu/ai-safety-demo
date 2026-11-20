@@ -1,7 +1,16 @@
 resources:
   - rhods-operator
-  - dsc-patch.yaml
-  - odhdashboardconfig-patch.yaml
-  # optional layers — apply selectively:
-  # - dsci
-  # - kueue-config  # only if DSC kueue -> Unmanaged and ClusterQueue needed
+  # dsc-patch.yaml and odhdashboardconfig-patch.yaml are patches on existing platform resources, not new resources
+  # They are applied via patches: below so oc apply -k does a strategic merge patch, not a create/replace
+  # kueue-config is optional — only if DSC kueue -> Unmanaged and ClusterQueue needed
+  # - kueue-config
+patches:
+  - path: dsc-patch.yaml
+    target:
+      kind: DataScienceCluster
+      name: default-dsc
+  - path: odhdashboardconfig-patch.yaml
+    target:
+      kind: OdhDashboardConfig
+      name: odh-dashboard-config
+      namespace: redhat-ods-applications
