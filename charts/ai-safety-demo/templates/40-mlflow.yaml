@@ -14,7 +14,11 @@ spec:
   backendStoreUri: {{ .Values.mlflow.backendStoreUri | quote }}
   artifactsDestination: {{ .Values.mlflow.artifactsDestination | quote }}
   defaultArtifactRoot: {{ .Values.mlflow.defaultArtifactRoot | quote }}
-  s3SecretName: {{ .Values.mlflow.s3SecretName | quote }}
+  # The v1 CRD has no s3SecretName field (it is pruned); inject the 4 AWS_*/endpoint
+  # keys the MLflow server's boto3 client reads via envFrom instead.
+  envFrom:
+    - secretRef:
+        name: {{ .Values.mlflow.s3SecretName | quote }}
   replicas: {{ .Values.mlflow.replicas }}
   storage:
     accessModes: [ReadWriteOnce]
@@ -95,7 +99,7 @@ metadata:
   name: create-mlflow-s3-credentials
   namespace: {{ .Values.mlflow.namespace }}
   annotations:
-    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.mlflow | quote }}
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.mlflowCredentials | quote }}
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: HookSucceeded
 spec:

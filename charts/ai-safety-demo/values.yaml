@@ -144,7 +144,9 @@ syncWaves:
   crds: "3"
   workloads: "3"
   dspa: "4"
-  mlflowPrereqs: "4"
+  # MLflow RBAC must exist before the credential hook; the hook before the MLflow CR.
+  mlflowPrereqs: "3"
+  mlflowCredentials: "4"
   mlflow: "5"
   evalhub: "6"
 

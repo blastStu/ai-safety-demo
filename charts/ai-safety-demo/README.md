@@ -151,6 +151,11 @@ oc create secret generic redteam-api-keys -n evalhub \
   (not plain Jobs / `PreSync` hooks). Hooks are deleted on success and re-run on the
   next sync, so changed values propagate and `Job.spec.template` immutability never
   fails an upgrade; `PreSync` would run before the Secrets they read exist.
+- **MLflow S3 credentials are injected via `spec.envFrom`.** The 3.5.3
+  `mlflows.mlflow.opendatahub.io/v1` CRD has no `s3SecretName` field — the Kustomize
+  manifest's value was silently pruned, so MLflow had no S3 credentials. The
+  `mlflow-s3-credentials` Secret (4 keys) is created at wave 4 and referenced with
+  `envFrom.secretRef` before the CR at wave 5.
 - **Credential copies read the source Secret with `oc get -o jsonpath` + `base64 -d`**
   instead of pasting values into shell arguments (`ose-cli` does not ship `jq`); no
   quoting/injection hazard and all 5 AWS keys stay in sync.
