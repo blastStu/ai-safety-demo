@@ -1,5 +1,5 @@
 resources:
   - namespace.yaml
-  - operatorgroup.yaml
   - subscription.yaml
   - approve-job.yaml
+# operatorgroup.yaml removed — vanilla ROSA already ships an OperatorGroup in redhat-ods-operator; a second one causes TooManyOperatorGroups
