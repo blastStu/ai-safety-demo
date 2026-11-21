@@ -33,6 +33,35 @@ The operator-install path (cert-manager/kueue/rhods Subscriptions + approvers) w
 exercised on this cluster because it ships those operators already; use a cluster
 without them to test `operators.*.enabled=true`.
 
+### RHDP GitOps verification (2026-11-21, k4xvq)
+
+RHDP catalog item `field-content` pointed at `repoURL: .../ai-safety-demo`,
+`revision: helm-v1.1`, `path: charts/ai-safety-demo`, with `bases.rhoai: true` (RHDP
+pre-installs cert-manager + RHOAI; the chart's operator installs were skipped
+automatically).
+
+- First sync on `ce5fcc4` failed Argo's up-front validation because the RHOAI CRDs did
+  not exist; nothing was applied.
+- `d8fb4dc` (per-resource `SkipDryRunOnMissingResource` + `wait-for-rhoai-crds` gate)
+  synced successfully.
+- `043bf1d` (MLflow `envFrom` S3 credentials; the v1 CRD prunes `s3SecretName`) brought
+  the app to **Synced/Healthy** with 35/35 resources Synced.
+
+Gates on the RHDP cluster:
+
+| Check | Result |
+|---|---|
+| Argo Application `field-content` | `Synced` / `Healthy`, 35/35 resources Synced |
+| `DataScienceCluster default-dsc` | `Ready` |
+| `DSPA dspa` | `Ready True` |
+| `MLflow mlflow` | `Available True` |
+| `EvalHub evalhub` | `Ready True` |
+| `TrustyAIService trustyai-service` | `Available True` |
+| MLflow → SeaweedFS S3 | `put`/`get`/`delete` of `evalhub/_helm-smoke.txt` OK |
+| EvalHub → MLflow | `/mlflow/version` → 200 |
+
+`redteam-api-keys` is still created out-of-band (not part of the chart).
+
 ## Chart layout
 
 | Template | Resources |
