@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: patch-datasciencecluster
+rules:
+  - apiGroups: ["datasciencecluster.opendatahub.io"]
+    resources: ["datascienceclusters"]
+    verbs: ["get","patch"]
+  - apiGroups: ["opendatahub.io"]
+    resources: ["odhdashboardconfigs"]
+    verbs: ["get","patch"]
+    resourceNames: ["odh-dashboard-config"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: patch-datasciencecluster
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: redhat-ods-operator
+roleRef:
+  kind: ClusterRole
+  name: patch-datasciencecluster
+  apiGroup: rbac.authorization.k8s.io

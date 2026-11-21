@@ -1,4 +1,5 @@
 resources:
+  - rbac-create-evalhub-db.yaml
   - secret.yaml
   - pvc.yaml
   - service.yaml

@@ -1,6 +1,6 @@
 resources:
   - rhods-operator
+  - rbac-patch-dsc.yaml
   - patch-dsc-job.yaml
-  - odhdashboardconfig-patch.yaml
 # kueue-config is optional — only if DSC kueue -> Unmanaged and ClusterQueue needed
 # - kueue-config

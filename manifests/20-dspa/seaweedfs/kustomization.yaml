@@ -6,4 +6,5 @@ resources:
   - deployment.yaml
   - service.yaml
   - routes.yaml
+  - rbac-copy-credentials.yaml
   - evalhub-credentials-job.yaml
