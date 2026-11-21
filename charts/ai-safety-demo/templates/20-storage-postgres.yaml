@@ -1,0 +1,174 @@
+{{- /*
+Single-pod PostgreSQL for EvalHub. The evalhub-db-credentials Secret is derived from
+the postgresql Secret's database-password by the Job below.
+*/ -}}
+{{- if ne .Values.postgres.namespace .Values.evalhub.namespace }}
+{{- fail "postgres.namespace and evalhub.namespace must match: the DB credential Role is namespace-scoped and EvalHub reads the Secret from evalhub" }}
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: create-evalhub-db-credentials
+  namespace: {{ .Values.postgres.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: ["{{ .Values.postgres.name }}"]
+  # create cannot be scoped by resourceName; get/update/patch are limited to the target.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "update", "patch"]
+    resourceNames: ["{{ .Values.evalhub.database.secret }}"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: create-evalhub-db-credentials
+  namespace: {{ .Values.postgres.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.postgres.namespace }}
+roleRef:
+  kind: Role
+  name: create-evalhub-db-credentials
+  apiGroup: rbac.authorization.k8s.io
+---
+# Placeholder only — generated on first install in the scripted flow. Replace with a
+# SealedSecret/ExternalSecret (or override .Values.postgres.password) for real use.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ .Values.postgres.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+type: Opaque
+stringData:
+  database-name: {{ .Values.postgres.database | quote }}
+  database-user: {{ .Values.postgres.user | quote }}
+  database-password: {{ .Values.postgres.password | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ .Values.postgres.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.workloads | quote }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.postgres.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ .Values.postgres.namespace }}
+  labels:
+    app: postgresql
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+spec:
+  selector:
+    app: postgresql
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ .Values.postgres.namespace }}
+  labels:
+    app: postgresql
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.workloads | quote }}
+spec:
+  replicas: {{ .Values.postgres.replicas }}
+  selector:
+    matchLabels:
+      app: postgresql
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgres.image }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom: { secretKeyRef: { name: {{ .Values.postgres.name }}, key: database-user } }
+            - name: POSTGRESQL_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.postgres.name }}, key: database-password } }
+            - name: POSTGRESQL_DATABASE
+              valueFrom: { secretKeyRef: { name: {{ .Values.postgres.name }}, key: database-name } }
+            - name: PG_TRUST_LOCALNET
+              value: "true"
+          volumeMounts:
+            - name: postgresql-data
+              mountPath: /var/lib/pgsql/data
+          livenessProbe:
+            exec: { command: ["pg_isready", "-h", "localhost"] }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec: { command: ["pg_isready", "-h", "localhost"] }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: postgresql-data
+          persistentVolumeClaim: { claimName: {{ .Values.postgres.name }} }
+---
+# Creates evalhub-db-credentials from the postgresql Secret's database-password.
+# EvalHub mounts this as its database url; without it the pod FailedMounts.
+# Plain sync-wave Job (not a PreSync hook) so the Secret it reads already exists.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-evalhub-db-credentials
+  namespace: {{ .Values.postgres.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.storageAndCredentials | quote }}
+    # Sync hook, not a plain Job: re-runnable, no Job.spec.template immutability failures.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: create-secret
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eo pipefail
+              DB_PASS=$(oc get secret {{ .Values.postgres.name }} -n {{ .Values.postgres.namespace }} -o jsonpath='{.data.database-password}' | base64 -d)
+              if [ -z "$DB_PASS" ]; then
+                echo "database-password is empty in secret {{ .Values.postgres.name }}" >&2
+                exit 1
+              fi
+              oc create secret generic {{ .Values.evalhub.database.secret }} -n {{ .Values.evalhub.namespace }} \
+                --from-literal=db-url="postgres://{{ .Values.postgres.user }}:${DB_PASS}@{{ .Values.postgres.name }}.{{ .Values.postgres.namespace }}.svc.cluster.local:5432/{{ .Values.postgres.database }}" \
+                --from-literal=database-password="${DB_PASS}" \
+                --dry-run=client -o yaml | oc apply -f -
+              echo "created {{ .Values.evalhub.database.secret }}"

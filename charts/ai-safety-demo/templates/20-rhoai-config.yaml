@@ -1,0 +1,106 @@
+{{- /*
+DataScienceCluster is platform-managed (created by rhods-operator), so it is not a
+chart resource. Instead a Job with a ClusterRole patches default-dsc and the dashboard
+config from a ConfigMap — same approach as manifests/10-rhoai.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: patch-datasciencecluster
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: ["datasciencecluster.opendatahub.io"]
+    resources: ["datascienceclusters"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["opendatahub.io"]
+    resources: ["odhdashboardconfigs"]
+    verbs: ["get", "patch"]
+    resourceNames: ["odh-dashboard-config"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: patch-datasciencecluster
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.operators.rhoai.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: patch-datasciencecluster
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dsc-patches
+  namespace: {{ .Values.operators.rhoai.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.configMaps | quote }}
+data:
+  dsc-patch.yaml: |
+    spec:
+      components:
+        aipipelines:
+          managementState: {{ .Values.rhoai.dsc.components.aipipelines }}
+        kserve:
+          managementState: {{ .Values.rhoai.dsc.components.kserve }}
+          rawDeploymentServiceConfig: {{ .Values.rhoai.dsc.components.kserveRawDeploymentServiceConfig }}
+          nim:
+            managementState: Removed
+          wva:
+            managementState: Removed
+          modelsAsService:
+            managementState: Removed
+        trustyai:
+          managementState: {{ .Values.rhoai.dsc.components.trustyai }}
+        mlflowoperator:
+          managementState: {{ .Values.rhoai.dsc.components.mlflowoperator }}
+        kueue:
+          managementState: {{ .Values.rhoai.dsc.components.kueue }}
+  odhdashboardconfig-patch.yaml: |
+    spec:
+      dashboardConfig:
+        disableLMEval: {{ .Values.rhoai.dashboard.disableLMEval }}
+        externalModels: {{ .Values.rhoai.dashboard.externalModels }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: patch-datasciencecluster
+  namespace: {{ .Values.operators.rhoai.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.rhoaiConfig | quote }}
+    # Sync hook (not a plain Job): deleting on success makes value changes re-runnable
+    # and avoids Job.spec.template immutability failures on later syncs.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: patch-dsc
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Patching DataScienceCluster default-dsc to V1.1 set (aipipelines, kserve, trustyai, mlflowoperator Managed)"
+              oc patch datasciencecluster default-dsc --type=merge --patch-file=/manifests/dsc-patch.yaml
+              echo "Patched DSC"
+              # also patch dashboard
+              oc patch odhdashboardconfig odh-dashboard-config -n redhat-ods-applications --type=merge --patch-file=/manifests/odhdashboardconfig-patch.yaml
+              echo "Patched OdhDashboardConfig"
+          volumeMounts:
+            - name: manifests
+              mountPath: /manifests
+      volumes:
+        - name: manifests
+          configMap:
+            name: dsc-patches

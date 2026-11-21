@@ -1,0 +1,27 @@
+# DSPA — DataSciencePipelinesApplication v1 (3.5 migrated from v1alpha1).
+# Needs the SeaweedFS bucket/credentials (wave 2 Job) and the evalhub namespace.
+apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
+kind: DataSciencePipelinesApplication
+metadata:
+  name: {{ .Values.dspa.name }}
+  namespace: {{ .Values.dspa.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.dspa | quote }}
+spec:
+  apiServer:
+    deploy: {{ .Values.dspa.apiServer.deploy }}
+  database:
+    mariaDB:
+      deploy: {{ .Values.dspa.mariaDB.deploy }}
+      username: {{ .Values.dspa.mariaDB.username }}
+      pipelineDBName: {{ .Values.dspa.mariaDB.pipelineDBName }}
+  objectStorage:
+    externalStorage:
+      # Direct in-cluster api-server (bug 5: the documented :8443 401s).
+      host: seaweedfs.{{ .Values.seaweedfs.namespace }}.svc.cluster.local:8333
+      bucket: {{ include "ai-safety-demo.bucket" . | quote }}
+      scheme: {{ .Values.dspa.objectStorage.scheme | quote }}
+      s3CredentialsSecret:
+        secretName: {{ .Values.dspa.objectStorage.credentialsSecret }}
+        accessKey: AWS_ACCESS_KEY_ID
+        secretKey: AWS_SECRET_ACCESS_KEY

@@ -1,0 +1,100 @@
+{{- if .Values.operators.rhoai.enabled }}
+{{- /*
+rhods-operator: Manual InstallPlan approval, CSV pinned to 3.5.3 (stable-3.5).
+No OperatorGroup on purpose — vanilla ROSA already ships one in redhat-ods-operator;
+a second one causes TooManyOperatorGroups and rhods-operator.3.5.3 Failed.
+*/ -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.operators.rhoai.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhods-operator
+  namespace: {{ .Values.operators.rhoai.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.subscriptions | quote }}
+spec:
+  channel: {{ .Values.operators.rhoai.channel }}
+  name: rhods-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Manual
+  startingCSV: {{ .Values.operators.rhoai.startingCSV }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.operators.rhoai.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["installplans"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["subscriptions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.operators.rhoai.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.operators.rhoai.namespace }}
+roleRef:
+  kind: Role
+  name: approve-installplan
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.operators.rhoai.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.approveInstallPlans | quote }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: approve
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              NS={{ .Values.operators.rhoai.namespace }}
+              DEADLINE=$(( $(date +%s) + {{ .Values.operators.approvalTimeoutSeconds }} ))
+              while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+                pending=$(oc get installplan -n "$NS" -o jsonpath='{range .items[?(@.spec.approved==false)]}{.metadata.name}{" "}{end}' 2>/dev/null || true)
+                for ip in $pending; do
+                  echo "Approving $ip in $NS"
+                  oc patch installplan "$ip" -n "$NS" --type merge -p '{"spec":{"approved":true}}' || echo "patch failed for $ip, will retry"
+                done
+                installed=$(oc get subscription -n "$NS" -o jsonpath='{range .items[*]}{.status.installedCSV}{" "}{end}' 2>/dev/null || true)
+                if [ -n "$(echo "$installed" | tr -d ' ')" ]; then
+                  echo "Operator installed in $NS: $installed"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "Timed out after {{ .Values.operators.approvalTimeoutSeconds }}s waiting for an InstallPlan/CSV in $NS" >&2
+              exit 1
+{{- end }}

@@ -1,0 +1,103 @@
+# Required for the dashboard's Develop & train -> Evaluations UI (RHOAI >= 3.5, Tech Preview).
+# Each project namespace needs its own instance.
+apiVersion: trustyai.opendatahub.io/v1
+kind: TrustyAIService
+metadata:
+  name: {{ .Values.evalhub.trustyaiservice.name }}
+  namespace: {{ .Values.evalhub.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.evalhub | quote }}
+spec:
+  storage:
+    format: PVC
+    folder: /data
+    # REQUIRED — omitting causes a silent operator panic (spec.storage.size parse error).
+    size: {{ .Values.evalhub.trustyaiservice.storageSize }}
+  data:
+    filename: data.csv
+    format: CSV
+  metrics:
+    schedule: "5s"
+---
+apiVersion: trustyai.opendatahub.io/v1
+kind: EvalHub
+metadata:
+  name: {{ .Values.evalhub.name }}
+  namespace: {{ .Values.evalhub.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.evalhub | quote }}
+spec:
+  replicas: {{ .Values.evalhub.replicas }}
+  database:
+    type: {{ .Values.evalhub.database.type }}
+    # Holds db-url=postgres://evalhub:pass@postgresql.evalhub.svc:5432/evalhub
+    secret: {{ .Values.evalhub.database.secret }}
+  providers:
+    {{- range .Values.evalhub.providers }}
+    - {{ . }}
+    {{- end }}
+  collections:
+    {{- range .Values.evalhub.collections }}
+    - {{ . }}
+    {{- end }}
+  # "single" — the platform namespace (evalhub) is not a tenant.
+  tenancy: {{ .Values.evalhub.tenancy | quote }}
+  env:
+    {{- range .Values.evalhub.env }}
+    - name: {{ .name }}
+      value: {{ .value | quote }}
+    {{- end }}
+---
+# Allow EvalHub evaluation-job pods to reach the DSPA api-server directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-evalhub-jobs-to-dspa-apiserver
+  namespace: {{ .Values.evalhub.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.evalhub | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      app: ds-pipeline-dspa
+      component: data-science-pipelines
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: evalhub
+              component: evaluation-job
+      ports:
+        - protocol: TCP
+          port: 8888
+---
+# Lets the evalhub Job ServiceAccount read the 5-key S3 credentials for result download.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: evalhub-job-read-s3-credentials
+  namespace: {{ .Values.evalhub.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.evalhub | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["{{ .Values.dspa.objectStorage.credentialsSecret }}"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: evalhub-job-read-s3-credentials
+  namespace: {{ .Values.evalhub.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.evalhub | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: evalhub-evalhub-job
+    namespace: {{ .Values.evalhub.namespace }}
+roleRef:
+  kind: Role
+  name: evalhub-job-read-s3-credentials
+  apiGroup: rbac.authorization.k8s.io

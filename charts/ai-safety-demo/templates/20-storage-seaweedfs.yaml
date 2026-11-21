@@ -1,0 +1,237 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.seaweedfs.namespace }}
+  labels:
+    name: seaweedfs
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seaweedfs-pvc
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.workloads | quote }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.seaweedfs.storage }}
+---
+# S3-compatible credentials, mirrored into evalhub by the copy Job below.
+# Keep all 5 AWS_* keys — KFP's envFrom requires them (CreateContainerConfigError otherwise).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: seaweedfs-secret
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: {{ .Values.seaweedfs.credentials.accessKey | quote }}
+  AWS_SECRET_ACCESS_KEY: {{ .Values.seaweedfs.credentials.secretKey | quote }}
+  AWS_S3_ENDPOINT: http://seaweedfs.{{ .Values.seaweedfs.namespace }}.svc:8333
+  AWS_S3_BUCKET: {{ .Values.seaweedfs.bucket | quote }}
+  AWS_DEFAULT_REGION: {{ .Values.seaweedfs.region | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seaweedfs-filer-config
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+data:
+  filer.toml: |
+    [leveldb2]
+    enabled = true
+    dir = "/tmp/filerldb2"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seaweedfs
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.workloads | quote }}
+spec:
+  replicas: {{ .Values.seaweedfs.replicas }}
+  selector:
+    matchLabels: { app: seaweedfs }
+  template:
+    metadata:
+      labels: { app: seaweedfs }
+    spec:
+      containers:
+        - name: seaweedfs
+          image: {{ .Values.seaweedfs.image }}
+          args: ["server", "-dir=/tmp", "-s3", "-iam", "-filer", "-master.volumePreallocate=false"]
+          ports:
+            - containerPort: 8333 # S3
+            - containerPort: 8888 # filer
+            - containerPort: 18888 # filer grpc
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: AWS_ACCESS_KEY_ID } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: AWS_SECRET_ACCESS_KEY } }
+          volumeMounts:
+            - { name: data, mountPath: /tmp }
+            - { name: filer-config, mountPath: /etc/seaweedfs/filer.toml, subPath: filer.toml }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            runAsNonRoot: true
+            seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: seaweedfs-pvc } }
+        - { name: filer-config, configMap: { name: seaweedfs-filer-config } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+spec:
+  selector: { app: seaweedfs }
+  ports:
+    - name: s3
+      port: 8333
+      targetPort: 8333
+    - name: filer
+      port: 8888
+      targetPort: 8888
+    - name: filer-grpc
+      port: 18888
+      targetPort: 18888
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: seaweedfs-s3
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.workloads | quote }}
+spec:
+  to: { kind: Service, name: seaweedfs }
+  port: { targetPort: s3 }
+  tls: { termination: edge }
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: seaweedfs-filer
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.workloads | quote }}
+spec:
+  to: { kind: Service, name: seaweedfs }
+  port: { targetPort: filer }
+  tls: { termination: edge }
+---
+# RBAC for the copy Job: read seaweedfs-secret here, create the 5-key copy in evalhub.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: copy-seaweedfs-credentials
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: ["seaweedfs-secret"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: copy-seaweedfs-credentials
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.seaweedfs.namespace }}
+roleRef:
+  kind: Role
+  name: copy-seaweedfs-credentials
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: create-seaweedfs-credentials
+  namespace: {{ .Values.evalhub.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "update", "patch"]
+    resourceNames: ["{{ .Values.dspa.objectStorage.credentialsSecret }}"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: create-seaweedfs-credentials
+  namespace: {{ .Values.evalhub.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.seaweedfs.namespace }}
+roleRef:
+  kind: Role
+  name: create-seaweedfs-credentials
+  apiGroup: rbac.authorization.k8s.io
+---
+# Copies SeaweedFS S3 credentials into the evalhub namespace where DSPA
+# (s3CredentialsSecret) and the garak-kfp pipeline steps both mount them.
+# Reads the source Secret rather than interpolating values, so credentials are never
+# pasted into a shell argument (no quoting/injection hazard) and all 5 keys stay in sync.
+# Sync hook (not a PreSync hook): runs in its wave after the wave-0 Secret/RBAC exist.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: copy-seaweedfs-credentials-to-evalhub
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.storageAndCredentials | quote }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: copy-secret
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eo pipefail
+              # Copy the 5 AWS_* keys from the source Secret. ose-cli has no jq, so read
+              # each key with jsonpath + base64 -d and pass it as one quoted argument.
+              set --
+              for k in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_S3_ENDPOINT AWS_S3_BUCKET AWS_DEFAULT_REGION; do
+                v=$(oc get secret seaweedfs-secret -n {{ .Values.seaweedfs.namespace }} -o jsonpath="{.data.${k}}" | base64 -d)
+                [ -n "$v" ] || { echo "missing $k in seaweedfs-secret" >&2; exit 1; }
+                set -- "$@" --from-literal="${k}=${v}"
+              done
+              oc create secret generic {{ .Values.dspa.objectStorage.credentialsSecret }} -n {{ .Values.evalhub.namespace }} "$@" \
+                --dry-run=client -o yaml | oc apply -f -
+              echo "created {{ .Values.dspa.objectStorage.credentialsSecret }} in {{ .Values.evalhub.namespace }}"

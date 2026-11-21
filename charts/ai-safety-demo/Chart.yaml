@@ -1,0 +1,9 @@
+apiVersion: v2
+name: ai-safety-demo
+description: RHOAI red-team evaluation stack (DSPA, MLflow, EvalHub garak-kfp, TrustyAI) for RHDP
+type: application
+version: 0.1.0
+appVersion: "1.1"
+annotations:
+  demo.redhat.com/component: ai-safety-demo
+  ai-safety-demo/rhdp-parity: overlays/rhdp@040d1af
