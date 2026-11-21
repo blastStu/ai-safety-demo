@@ -140,8 +140,14 @@ syncWaves:
   configMaps: "1"
   rhoaiConfig: "2"
   storageAndCredentials: "2"
+  # Gate that waits for the DSPA/MLflow/EvalHub/TrustyAI CRDs before the CR waves.
+  crds: "3"
   workloads: "3"
   dspa: "4"
   mlflowPrereqs: "4"
   mlflow: "5"
   evalhub: "6"
+
+crds:
+  # How long the wait-for-CRDs hook polls before failing the sync (seconds).
+  waitTimeoutSeconds: 900

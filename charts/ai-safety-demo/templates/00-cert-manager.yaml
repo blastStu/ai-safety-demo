@@ -1,4 +1,5 @@
-{{- if .Values.operators.certManager.enabled }}
+{{- /* RHDP bases already install cert-manager, so bases.rhoai=true forces this off. */ -}}
+{{- if and .Values.operators.certManager.enabled (not (and .Values.bases .Values.bases.rhoai)) }}
 apiVersion: v1
 kind: Namespace
 metadata:

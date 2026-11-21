@@ -44,13 +44,34 @@ without them to test `operators.*.enabled=true`.
 | `20-rhoai-config.yaml` | `patch-datasciencecluster` ClusterRole/Binding + ConfigMap + patch hook Job |
 | `20-storage-seaweedfs.yaml` | SeaweedFS Namespace/PVC/Secret/ConfigMap/Deployment/Service/Routes + credential-copy hook Job |
 | `20-storage-postgres.yaml` | Postgres Role/Secret/PVC/Service/Deployment + DB credential hook Job |
+| `20-wait-for-crds.yaml` | wave-3 hook that waits for the DSPA/MLflow/EvalHub/TrustyAI CRDs |
 | `30-dspa.yaml` | DSPA v1 |
 | `40-mlflow.yaml` | MLflow v1 + S3 read/create RBAC + `mlflow-s3-credentials` hook Job |
 | `50-evalhub.yaml` | TrustyAIService v1, EvalHub v1, NetworkPolicy, S3-read Role/Binding |
 
 Sync waves match `overlays/rhdp`: namespaces/OperatorGroups/Subscriptions and their
 InstallPlan approvers `0`, ConfigMaps/RBAC `1`, DSC patch + credential Jobs `2`,
-workloads/PVCs `3`, DSPA `4`, MLflow `5`, EvalHub/TrustyAI `6`.
+the `wait-for-rhoai-crds` gate and workloads/PVCs `3`, DSPA `4`, MLflow `5`,
+EvalHub/TrustyAI `6`.
+
+### Argo CD validation on a fresh cluster
+
+Argo validates the whole application before applying anything. On a fresh cluster the
+DSPA/MLflow/EvalHub/TrustyAI CRDs do not exist yet, and Argo rejects the entire sync
+with `failed to discover server resources for group version ...` — even the operator
+install never runs. The chart handles this without needing app-level sync options:
+
+- the four CRs carry `argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true`,
+- `wait-for-rhoai-crds` (Sync hook, wave 3) blocks the CR waves until the DSC patch has
+  caused the operator to register all four CRDs, failing non-zero after
+  `crds.waitTimeoutSeconds` (default 900).
+
+### RHDP bases
+
+RHDP catalog items pass `bases.rhoai: true` in `source.helm.values` and install
+cert-manager + RHOAI before the Application. The chart detects that and skips its own
+cert-manager/kueue/rhods Subscriptions automatically. When no `bases` block is present,
+`operators.*.enabled` controls them explicitly.
 
 > The approvers sit in wave `0` (not `1` as in the Kustomize overlay) on purpose:
 > Argo CD's `Subscription` health check reports `Progressing` while a `Manual`
@@ -88,6 +109,7 @@ Common knobs:
 - `operators.*` — namespaces, channels and pinned CSVs (`stable-3.5`, `rhods-operator.3.5.3`).
 - `operators.rhoai.enabled` — set `false` when RHOAI is already installed; skips the
   Namespace/Subscription/approver, the DSC patch Job still runs.
+- `crds.waitTimeoutSeconds` — how long the CRD wait gate polls before failing (default 900).
 - `operators.approvalTimeoutSeconds` — how long each InstallPlan approver polls (default 900).
 - `rhoai.dsc.components.*` — component management states merged into `DataScienceCluster`.
 - `rhoai.dashboard.*` — `disableLMEval` / `externalModels` flags.

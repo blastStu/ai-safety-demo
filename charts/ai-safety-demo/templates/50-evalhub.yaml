@@ -7,6 +7,7 @@ metadata:
   namespace: {{ .Values.evalhub.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.evalhub | quote }}
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   storage:
     format: PVC
@@ -26,6 +27,7 @@ metadata:
   namespace: {{ .Values.evalhub.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.evalhub | quote }}
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   replicas: {{ .Values.evalhub.replicas }}
   database:

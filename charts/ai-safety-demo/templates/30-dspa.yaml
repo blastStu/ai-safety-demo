@@ -7,6 +7,8 @@ metadata:
   namespace: {{ .Values.dspa.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.dspa | quote }}
+    # CRD may not exist at App validation time; wave 3 waits for it before this wave.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   apiServer:
     deploy: {{ .Values.dspa.apiServer.deploy }}

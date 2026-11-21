@@ -1,4 +1,5 @@
-{{- if .Values.operators.rhoai.enabled }}
+{{- /* RHDP bases already install RHOAI, so bases.rhoai=true forces this off. */ -}}
+{{- if and .Values.operators.rhoai.enabled (not (and .Values.bases .Values.bases.rhoai)) }}
 {{- /*
 rhods-operator: Manual InstallPlan approval, CSV pinned to 3.5.3 (stable-3.5).
 No OperatorGroup on purpose — vanilla ROSA already ships one in redhat-ods-operator;

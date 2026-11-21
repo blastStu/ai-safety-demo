@@ -6,6 +6,8 @@ metadata:
   namespace: {{ .Values.mlflow.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.mlflow | quote }}
+    # CRD may not exist at App validation time; wave 3 waits for it before this wave.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   # v1 requires an explicit storage PVC when backendStoreUri is sqlite://… (3.5 migrated
   # from v1alpha1) and defaultArtifactRoot when serveArtifacts is false (the default).
