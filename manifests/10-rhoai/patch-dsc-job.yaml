@@ -5,6 +5,7 @@ metadata:
   namespace: redhat-ods-operator
   annotations:
     argocd.argoproj.io/sync-wave: "2"
+    ai-safety-demo/revision: "2"
 spec:
   template:
     spec:
