@@ -12,7 +12,7 @@ metadata:
 rules:
   - apiGroups: ["datasciencecluster.opendatahub.io"]
     resources: ["datascienceclusters"]
-    verbs: ["get", "patch"]
+    verbs: ["get", "patch", "create"]
   - apiGroups: ["opendatahub.io"]
     resources: ["odhdashboardconfigs"]
     verbs: ["get", "patch"]
@@ -79,6 +79,7 @@ metadata:
     # and avoids Job.spec.template immutability failures on later syncs.
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    ai-safety-demo/revision: "2"
 spec:
   template:
     spec:
@@ -92,12 +93,20 @@ spec:
             - /bin/sh
             - -c
             - |
-              echo "Patching DataScienceCluster default-dsc to V1.1 set (aipipelines, kserve, trustyai, mlflowoperator Managed)"
+              set -e
+              if ! oc get datasciencecluster default-dsc >/dev/null 2>&1; then
+                echo "default-dsc not found — creating from manifests/10-rhoai/dsc-patch.yaml..."
+                oc apply -f /manifests/dsc-patch.yaml
+              fi
+              echo "Patching DataScienceCluster default-dsc..."
               oc patch datasciencecluster default-dsc --type=merge --patch-file=/manifests/dsc-patch.yaml
               echo "Patched DSC"
-              # also patch dashboard
-              oc patch odhdashboardconfig odh-dashboard-config -n redhat-ods-applications --type=merge --patch-file=/manifests/odhdashboardconfig-patch.yaml
-              echo "Patched OdhDashboardConfig"
+              if oc get odhdashboardconfig odh-dashboard-config -n redhat-ods-applications >/dev/null 2>&1; then
+                oc patch odhdashboardconfig odh-dashboard-config -n redhat-ods-applications --type=merge --patch-file=/manifests/odhdashboardconfig-patch.yaml
+                echo "Patched OdhDashboardConfig"
+              else
+                echo "OdhDashboardConfig not present (expected on 3.6) — skipping"
+              fi
           volumeMounts:
             - name: manifests
               mountPath: /manifests
