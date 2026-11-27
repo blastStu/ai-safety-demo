@@ -49,6 +49,8 @@ kind: ConfigMap
 metadata:
   name: dsc-patches
   namespace: redhat-ods-operator
+  annotations:
+    ai-safety-demo/revision: "2"
 data:
   dsc-patch.yaml: |
     apiVersion: datasciencecluster.opendatahub.io/v2
