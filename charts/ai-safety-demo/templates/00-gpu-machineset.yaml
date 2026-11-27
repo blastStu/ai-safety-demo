@@ -78,6 +78,7 @@ spec:
               if [ -n "$AZ" ]; then AZ_SFX="-${AZ##*-}"; else AZ_SFX=""; fi
               NEW_NAME="gpu-${INSTANCE_TYPE}${AZ_SFX}"
               NEW_NAME=$(echo "$NEW_NAME" | tr '_' '-' | cut -c1-63)
+              export NEW_NAME INSTANCE_TYPE REPLICAS ACC_LABEL TAINT_KEY TAINT_VAL
               if oc get machineset "$NEW_NAME" -n openshift-machine-api >/dev/null 2>&1; then
                 echo "MachineSet $NEW_NAME exists — ensuring replicas=$REPLICAS"
                 oc scale machineset "$NEW_NAME" -n openshift-machine-api --replicas="$REPLICAS" 2>/dev/null || \
