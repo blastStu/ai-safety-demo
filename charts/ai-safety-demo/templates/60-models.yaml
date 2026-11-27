@@ -1,0 +1,180 @@
+{{- /*
+V1.3 — in-cluster vLLM models mirrored from a live cluster (e.g. sbatters36ea2):
+  gemma-3-12b ablitterated (HF) + Qwen3.6-35B-A3B-FP8 (OCI ModelCar).
+Derived from InferenceService + ServingRuntime via Dashboard UI (RHOAI 3.6 EA2).
+KServe Headless auto-creates external Route (reencrypt), no manual Route/Service.
+Taint nvidia.com/gpu:NoSchedule already on GPU nodes — toleration + nodeSelector required.
+Follows rosa-cluster-skill Step 8: Standard deploymentMode, enable-auth, timeout → kube-rbac-proxy.
+Gate: models.enabled=true.
+*/ -}}
+{{- if .Values.models.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.models.namespace }}
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.modelsNamespace | default "2" | quote }}
+---
+# ServingRuntimes — vLLM CUDA (registry.redhat.io/rhaii-fast/vllm-cuda-rhel9)
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: gemma-abliterated
+  namespace: {{ .Values.models.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.modelsRuntimes | default "3" | quote }}
+    opendatahub.io/apiProtocol: REST
+    opendatahub.io/template-name: vllm-cuda-runtime-template
+spec:
+  annotations:
+    opendatahub.io/kserve-runtime: vllm
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
+  containers:
+    - args:
+        - --port=8080
+        - --model=/mnt/models
+        - --served-model-name={{ "{{.Name}}" }}
+      command: [python, -m, vllm.entrypoints.openai.api_server]
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+      image: registry.redhat.io/rhaii-fast/vllm-cuda-rhel9@sha256:97c7d6f66f3f0897b3ff10ddd135de930d45bdd116cf41a43e3ad7270029116a
+      name: kserve-container
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+  multiModel: false
+  supportedModelFormats:
+    - autoSelect: true
+      name: vLLM
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: qwen-35b-a3b-fp8
+  namespace: {{ .Values.models.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.modelsRuntimes | default "3" | quote }}
+    opendatahub.io/apiProtocol: REST
+    opendatahub.io/template-name: vllm-cuda-runtime-template
+spec:
+  annotations:
+    opendatahub.io/kserve-runtime: vllm
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
+  containers:
+    - args:
+        - --port=8080
+        - --model=/mnt/models
+        - --served-model-name={{ "{{.Name}}" }}
+      command: [python, -m, vllm.entrypoints.openai.api_server]
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+      image: registry.redhat.io/rhaii-fast/vllm-cuda-rhel9@sha256:97c7d6f66f3f0897b3ff10ddd135de930d45bdd116cf41a43e3ad7270029116a
+      name: kserve-container
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+  multiModel: false
+  supportedModelFormats:
+    - autoSelect: true
+      name: vLLM
+---
+# InferenceServices — same spec as live cluster (extra runtime params preserved)
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  annotations:
+    opendatahub.io/hardware-profile-name: nvidia-gpu-l4
+    opendatahub.io/hardware-profile-namespace: redhat-ods-applications
+    security.opendatahub.io/enable-auth: "true"
+    serving.kserve.io/deploymentMode: Standard
+  name: gemma-abliterated
+  namespace: {{ .Values.models.namespace }}
+  labels:
+    networking.kserve.io/visibility: exposed
+    opendatahub.io/dashboard: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.models | default "4" | quote }}
+spec:
+  predictor:
+    maxReplicas: 1
+    minReplicas: 1
+    model:
+      args:
+        - --max-model-len=32768
+        - --gpu-memory-utilization=0.95
+      modelFormat:
+        name: vLLM
+      resources:
+        limits:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+        requests:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+      runtime: gemma-abliterated
+      storageUri: {{ .Values.models.gemma.storageUri | quote }}
+      protocolVersion: v2
+    nodeSelector:
+      nvidia.com/gpu.present: "true"
+    timeout: 120
+    tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Equal
+        value: "true"
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  annotations:
+    opendatahub.io/hardware-profile-name: nvidia-gpu-l4
+    opendatahub.io/hardware-profile-namespace: redhat-ods-applications
+    security.opendatahub.io/enable-auth: "true"
+    serving.kserve.io/deploymentMode: Standard
+  name: qwen-35b-a3b-fp8
+  namespace: {{ .Values.models.namespace }}
+  labels:
+    networking.kserve.io/visibility: exposed
+    opendatahub.io/dashboard: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.models | default "4" | quote }}
+spec:
+  predictor:
+    maxReplicas: 1
+    minReplicas: 1
+    model:
+      args:
+        - --max-model-len=16384
+        - --gpu-memory-utilization=0.95
+        - --max-num-seqs=128
+      modelFormat:
+        name: vLLM
+      resources:
+        limits:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+        requests:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+      runtime: qwen-35b-a3b-fp8
+      storageUri: {{ .Values.models.qwen.storageUri | quote }}
+      protocolVersion: v2
+    nodeSelector:
+      nvidia.com/gpu.present: "true"
+    timeout: 120
+    tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Equal
+        value: "true"
+{{- end }}

@@ -158,6 +158,14 @@ mlflow:
   defaultArtifactRoot: s3://mlflow/artifacts
   s3SecretName: mlflow-s3-credentials
 
+models:
+  enabled: false
+  namespace: rhoai-model-serving
+  gemma:
+    storageUri: hf://huihui-ai/gemma-3-12b-it-abliterated
+  qwen:
+    storageUri: oci://registry.redhat.io/rhai/modelcar-redhatai-qwen3-6-35b-a3b-fp8:3.0
+
 # Argo CD sync waves — extended from overlays/rhdp to include GPU operators.
 syncWaves:
   namespaces: "0"
@@ -178,6 +186,9 @@ syncWaves:
   mlflowCredentials: "4"
   mlflow: "5"
   evalhub: "6"
+  modelsNamespace: "2"
+  modelsRuntimes: "3"
+  models: "4"
 
 crds:
   # How long the wait-for-CRDs hook polls before failing the sync (seconds).
