@@ -170,6 +170,64 @@ spec:
               oc rollout restart ds/nfd-worker -n {{ .Values.gpu.nfd.namespace }} 2>/dev/null || echo "nfd-worker DS not yet created, will appear shortly"
               echo "NFD configured"
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: configure-nfd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: ["nfd.openshift.io"]
+    resources: ["nodefeaturediscoveries"]
+    verbs: ["get", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: configure-nfd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.gpu.nfd.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: configure-nfd
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: configure-gpu-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: ["nvidia.com"]
+    resources: ["clusterpolicies"]
+    verbs: ["get", "create", "patch", "update"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: configure-gpu-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.gpu.gpuOperator.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: configure-gpu-operator
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -315,7 +373,9 @@ spec:
                 | jq -r 'map(select(.kind=="ClusterPolicy"))[0]' | oc apply -f -
               echo "Patching gpu-operator deployment to tolerate GPU taint..."
               oc patch deployment gpu-operator -n {{ .Values.gpu.gpuOperator.namespace }} --type=json \
-                -p='[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]}]' 2>/dev/null \
-                || echo "gpu-operator toleration patch skipped (already present or deployment not yet ready)"
+                -p='[{"op":"add","path":"/spec/template/spec/tolerations","value":[]}]' 2>/dev/null || true
+              oc patch deployment gpu-operator -n {{ .Values.gpu.gpuOperator.namespace }} --type=json \
+                -p='[{"op":"add","path":"/spec/template/spec/tolerations/-","value":{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}}]' 2>/dev/null \
+                || echo "gpu-operator toleration already present or deployment not yet ready"
               echo "GPU Operator configured — ClusterPolicy created"
 {{- end }}

@@ -8,10 +8,11 @@ Provenance: ported from `overlays/rhdp` at `gitops-v1.1` (040d1af), now tracking
 RHOAI **3.6 EA2** (`beta` / `rhods-operator.3.6.0-ea.2`) with optional GPU (NFD + NVIDIA GPU
 Operator) for in-cluster model serving. See the Helm chart's `values.yaml` for defaults.
 
-Verified RHOAI 3.5.3 baseline: DSPA `Ready True`, MLflow `Available True`,
-EvalHub `Ready True`, `Develop & train → Evaluations → Start → garak-kfp`.
+Current target: RHOAI **3.6 EA2** (`beta` / `rhods-operator.3.6.0-ea.2`). Historical
+V1.1 baseline was 3.5.3 (`stable-3.5` / `rhods-operator.3.5.3`) — same DSPA/MLflow/EvalHub
+contract (DSPA `Ready True`, MLflow `Available True`, EvalHub `Ready True`).
 
-## Live verification (2026-11-21)
+## Live verification (2026-11-21) — on 3.5.3, historical
 
 Deployed to `api.ocp.5td5k.sandbox5240.opentlc.com` (OCP 4.22.22, 5 nodes,
 `gp3-csi`) with RHOAI 3.5.3 already installed but every target component `Removed`:

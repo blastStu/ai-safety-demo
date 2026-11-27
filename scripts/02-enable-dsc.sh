@@ -29,6 +29,18 @@ else
 fi
 echo
 
+echo "Waiting for DataScienceCluster and DashboardConfig to be created by the operator..."
+for i in $(seq 1 60); do
+  oc get datasciencecluster default-dsc >/dev/null 2>&1 && break
+  echo "Waiting for default-dsc to be created (attempt $i/60)..."
+  sleep 5
+done
+for i in $(seq 1 60); do
+  oc get odhdashboardconfig odh-dashboard-config -n redhat-ods-applications >/dev/null 2>&1 && break
+  echo "Waiting for odh-dashboard-config to be created (attempt $i/60)..."
+  sleep 5
+done
+
 echo "Current DSC phase: $(oc get datasciencecluster default-dsc -o jsonpath='{.status.phase}' 2>/dev/null || echo 'not found')"
 echo "Patching default-dsc from manifests/10-rhoai/dsc-patch.yaml..."
 oc patch datasciencecluster default-dsc --type=merge --patch-file manifests/10-rhoai/dsc-patch.yaml

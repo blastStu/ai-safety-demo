@@ -62,3 +62,4 @@ data:
       dashboardConfig:
         disableLMEval: false
         externalModels: true
+        modelCapabilities: true

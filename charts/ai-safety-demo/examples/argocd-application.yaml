@@ -18,7 +18,9 @@ spec:
     path: charts/ai-safety-demo
     helm:
       releaseName: ai-safety-demo
-      # valuesObject: {}   # optional overrides; chart defaults are the V1.1 baseline
+      # valuesObject: {}   # optional overrides; chart defaults are V1.1 + RHOAI 3.6 EA2 (gpu.enabled=false by default)
+      # gpu:            # uncomment when the RHDP/ROSA cluster has a GPU machine pool
+      #   enabled: true
   destination:
     server: https://kubernetes.default.svc
     namespace: evalhub

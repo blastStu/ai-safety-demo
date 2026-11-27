@@ -161,8 +161,10 @@ oc get csv -n nvidia-gpu-operator "$GPU_CSV" -o jsonpath='{.metadata.annotations
 echo "Patching gpu-operator manager to tolerate GPU taint..."
 sleep 5
 oc patch deployment gpu-operator -n nvidia-gpu-operator --type=json \
-  -p='[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]}]' 2>/dev/null \
-  || echo "gpu-operator toleration patch skipped (already present or not yet ready)"
+  -p='[{"op":"add","path":"/spec/template/spec/tolerations","value":[]}]' 2>/dev/null || true
+oc patch deployment gpu-operator -n nvidia-gpu-operator --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/tolerations/-","value":{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}}]' 2>/dev/null \
+  || echo "gpu-operator toleration already present or deployment not yet ready"
 
 echo
 echo "=== GPU gates ==="
