@@ -1,9 +1,7 @@
 {{- /*
-GPU MachineSet for RHDP/IPI clusters (k9xjn): clones an existing worker-compute
-MachineSet and patches instanceType/accelerator label/taint — same primitive as
-the local shell script but non-interactive and declarative. Off on ROSA (there
-it's a NodePool via ROSA CLI). Gate: gpu.machinePool.create=true.
-Early wave so nodes land before NFD/GPU Operator.
+GPU MachineSet for RHDP/IPI clusters: clones an existing worker-compute
+MachineSet and patches instanceType/accelerator label/taint. No rosa CLI.
+Gate: gpu.machinePool.create=true. Uses oc + python3 (no jq in ose-cli).
 */ -}}
 {{- if and .Values.gpu.enabled .Values.gpu.machinePool.create }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -55,43 +53,65 @@ spec:
             - -c
             - |
               set -e
-              # ose-cli doesn't ship jq — install it if needed (same fix as seaweedfs jobs using jsonpath).
-              if ! command -v jq >/dev/null 2>&1; then
-                echo "Installing jq..."
-                microdnf install -y jq 2>/dev/null || yum install -y jq 2>/dev/null || dnf install -y jq 2>/dev/null || true
-              fi
               INSTANCE_TYPE={{ .Values.gpu.machinePool.instanceType | quote }}
               REPLICAS={{ .Values.gpu.machinePool.replicas }}
               ACC_LABEL={{ .Values.gpu.machinePool.acceleratorLabel | quote }}
               TAINT_KEY={{ .Values.gpu.machinePool.taintKey | quote }}
               TAINT_VAL={{ .Values.gpu.machinePool.taintValue | quote }}
-              SRC=$(oc get machineset -n openshift-machine-api -o json 2>/dev/null \
-                | jq -r '.items[] | select(.metadata.name | test("worker.*compute")) | select(.spec.replicas > 0) | .metadata.name' | head -1)
+              # Find template MachineSet without jq (ose-cli has no jq — use name + jsonpath).
+              SRC=""
+              for ms in $(oc get machineset -n openshift-machine-api -o name 2>/dev/null | cut -d/ -f2); do
+                if echo "$ms" | grep -q "worker.*compute"; then
+                  REPS=$(oc get machineset "$ms" -n openshift-machine-api -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)
+                  if [ "$REPS" -gt 0 ] 2>/dev/null; then SRC="$ms"; break; fi
+                fi
+              done
               if [ -z "$SRC" ]; then
-                SRC=$(oc get machineset -n openshift-machine-api -o json 2>/dev/null | jq -r '.items[] | select(.metadata.name | test("worker")) | .metadata.name' | head -1)
+                for ms in $(oc get machineset -n openshift-machine-api -o name 2>/dev/null | cut -d/ -f2); do
+                  if echo "$ms" | grep -q "worker"; then SRC="$ms"; break; fi
+                done
               fi
-              if [ -z "$SRC" ]; then echo "No worker MachineSet found — is this a ROSA HCP cluster?" >&2; exit 0; fi
+              if [ -z "$SRC" ]; then echo "No worker MachineSet found — is this ROSA HCP?" >&2; exit 1; fi
               echo "Template MachineSet: $SRC"
-              REGION=$(oc get machineset "$SRC" -n openshift-machine-api -o json | jq -r '.spec.template.spec.providerSpec.value.placement.region // empty')
-              AZ=$(oc get machineset "$SRC" -n openshift-machine-api -o json | jq -r '.spec.template.spec.providerSpec.value.placement.availabilityZone // empty')
+              REGION=$(oc get machineset "$SRC" -n openshift-machine-api -o jsonpath='{.spec.template.spec.providerSpec.value.placement.region}' 2>/dev/null || echo "")
+              AZ=$(oc get machineset "$SRC" -n openshift-machine-api -o jsonpath='{.spec.template.spec.providerSpec.value.placement.availabilityZone}' 2>/dev/null || echo "")
               if [ -n "$AZ" ]; then AZ_SFX="-${AZ##*-}"; else AZ_SFX=""; fi
               NEW_NAME="gpu-${INSTANCE_TYPE}${AZ_SFX}"
               NEW_NAME=$(echo "$NEW_NAME" | tr '_' '-' | cut -c1-63)
               if oc get machineset "$NEW_NAME" -n openshift-machine-api >/dev/null 2>&1; then
-                echo "MachineSet $NEW_NAME already exists — ensuring replicas=$REPLICAS"
+                echo "MachineSet $NEW_NAME exists — ensuring replicas=$REPLICAS"
                 oc scale machineset "$NEW_NAME" -n openshift-machine-api --replicas="$REPLICAS" 2>/dev/null || \
                   oc patch machineset "$NEW_NAME" -n openshift-machine-api --type merge -p "{\"spec\":{\"replicas\":$REPLICAS}}"
                 exit 0
               fi
               echo "Creating MachineSet $NEW_NAME (instanceType=$INSTANCE_TYPE replicas=$REPLICAS taint=$TAINT_KEY:NoSchedule)"
-              oc get machineset "$SRC" -n openshift-machine-api -o json | jq --arg INSTANCE_TYPE "$INSTANCE_TYPE" --arg NEW_NAME "$NEW_NAME" --arg ACC_LABEL "$ACC_LABEL" --arg TAINT_KEY "$TAINT_KEY" --arg TAINT_VAL "$TAINT_VAL" --argjson REPLICAS "$REPLICAS" '
-                (.metadata.name) |= $NEW_NAME |
-                (.spec.replicas) |= $REPLICAS |
-                (.spec.selector.matchLabels["machine.openshift.io/cluster-api-machineset"]) |= $NEW_NAME |
-                (.spec.template.metadata.labels["machine.openshift.io/cluster-api-machineset"]) |= $NEW_NAME |
-                (.spec.template.spec.providerSpec.value.instanceType) |= $INSTANCE_TYPE |
-                (.spec.template.spec.metadata.labels["cluster-api/accelerator"]) |= $ACC_LABEL |
-                (.spec.template.spec.taints) |= [{ "effect": "NoSchedule", "key": $TAINT_KEY, "value": $TAINT_VAL }]
-              ' | oc apply -f -
-              echo "MachineSet $NEW_NAME created — nodes will Join then go Ready"
+              # Clone via python3 (present in ose-cli) — no jq needed.
+              oc get machineset "$SRC" -n openshift-machine-api -o json | python3 -c "
+              import json, sys, os
+              src=json.load(sys.stdin)
+              new_name=os.environ['NEW_NAME']
+              instance_type=os.environ['INSTANCE_TYPE']
+              acc_label=os.environ['ACC_LABEL']
+              taint_key=os.environ['TAINT_KEY']
+              taint_val=os.environ['TAINT_VAL']
+              replicas=int(os.environ['REPLICAS'])
+              # strip server-side fields
+              for k in ['uid','resourceVersion','creationTimestamp','generation','managedFields','selfLink','ownerReferences','finalizers']:
+                  src['metadata'].pop(k, None)
+              if 'annotations' in src['metadata']:
+                  src['metadata']['annotations'].pop('kubectl.kubernetes.io/last-applied-configuration', None)
+              src['metadata']['name']=new_name
+              src['spec']['replicas']=replicas
+              src['spec']['selector']['matchLabels']['machine.openshift.io/cluster-api-machineset']=new_name
+              src['spec']['template']['metadata']['labels']['machine.openshift.io/cluster-api-machineset']=new_name
+              src['spec']['template']['spec']['providerSpec']['value']['instanceType']=instance_type
+              if 'metadata' not in src['spec']['template']['spec']:
+                  src['spec']['template']['spec']['metadata']={}
+              if 'labels' not in src['spec']['template']['spec']['metadata']:
+                  src['spec']['template']['spec']['metadata']['labels']={}
+              src['spec']['template']['spec']['metadata']['labels']['cluster-api/accelerator']=acc_label
+              src['spec']['template']['spec']['taints']=[{'effect':'NoSchedule','key':taint_key,'value':taint_val}]
+              json.dump(src, sys.stdout)
+              " | oc apply -f -
+              echo "MachineSet $NEW_NAME created"
 {{- end }}
