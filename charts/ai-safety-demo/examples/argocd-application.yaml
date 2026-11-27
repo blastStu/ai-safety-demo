@@ -1,0 +1,38 @@
+# Example Argo CD Application for the Helm chart.
+# RHDP's "Existing GitOps Repo" flow creates an equivalent Application with source.helm;
+# this file is a reference for manual syncs and for verifying the chart path.
+#
+#   oc apply -f charts/ai-safety-demo/examples/argocd-application.yaml
+#
+# targetRevision must be the branch that carries charts/ai-safety-demo.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ai-safety-demo
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/blastStu/ai-safety-demo
+    targetRevision: helm-v1.1
+    path: charts/ai-safety-demo
+    helm:
+      releaseName: ai-safety-demo
+      # valuesObject: {}   # optional overrides; chart defaults are the V1.1 baseline
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: evalhub
+  syncPolicy:
+    syncOptions:
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+      - CreateNamespace=false
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 5m

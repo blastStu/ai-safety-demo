@@ -35,6 +35,7 @@ manifests/              # Kustomize bases, numbered for apply order
   30-mlflow/             # MLflow instance (v1, single instance named mlflow)
   40-garak/              # EvalHub garak-kfp (trustyai + evalhub, tenancy: single) + probe ConfigMap
 overlays/dev, overlays/rhdp   # per-environment patches (minimal for V1.1)
+charts/ai-safety-demo/    # Helm port of overlays/rhdp for RHDP Argo CD source.helm
 benchmarks/              # runnable Benchmark parameters JSON for the Dashboard upload
 scripts/                # 00-check, 01-prereqs, 02-enable-dsc, 03-dspa-mlflow, 04-evalhub, 05-run-garak
 ```
@@ -51,6 +52,18 @@ Apply in order:
 ```
 
 Each script waits for its `Ready` / `Available` gate; re-running is idempotent.
+
+### Helm / RHDP GitOps path
+
+`charts/ai-safety-demo/` renders the same stack as `overlays/rhdp` without Kustomize,
+for RHDP catalog items that deploy from a Helm chart (Argo CD `source.helm`):
+
+```bash
+helm template ai-safety-demo charts/ai-safety-demo | oc apply --dry-run=server -f -
+```
+
+Point the RHDP **GitOps Path** at `charts/ai-safety-demo`. `overlays/rhdp` stays
+Kustomize for `oc apply -k`. See [charts/ai-safety-demo/README.md](charts/ai-safety-demo/README.md).
 
 ## Benchmarks
 

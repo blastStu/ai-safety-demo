@@ -1,0 +1,112 @@
+{{- /* RHDP bases already install cert-manager, so bases.rhoai=true forces this off. */ -}}
+{{- if and .Values.operators.certManager.enabled (not (and .Values.bases .Values.bases.rhoai)) }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.operators.certManager.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+---
+# AllNamespaces installMode — empty spec (no targetNamespaces).
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: cert-manager-operatorgroup
+  namespace: {{ .Values.operators.certManager.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.operatorGroups | quote }}
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-cert-manager-operator
+  namespace: {{ .Values.operators.certManager.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.subscriptions | quote }}
+spec:
+  channel: {{ .Values.operators.certManager.channel }}
+  name: openshift-cert-manager-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Manual
+  startingCSV: {{ .Values.operators.certManager.startingCSV }}
+---
+# The approver runs as the namespace default ServiceAccount; OLM permissions are not implicit.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.operators.certManager.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["installplans"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["subscriptions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.operators.certManager.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.operators.certManager.namespace }}
+roleRef:
+  kind: Role
+  name: approve-installplan
+  apiGroup: rbac.authorization.k8s.io
+---
+# Polls until the InstallPlan exists and is approved, and fails non-zero on timeout.
+# Exiting 0 on "nothing found yet" (the old 5x5s loop) silently skipped approval and
+# left Argo's Subscription health check stuck Progressing, blocking every later wave.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.operators.certManager.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.approveInstallPlans | quote }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: approve
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              NS={{ .Values.operators.certManager.namespace }}
+              DEADLINE=$(( $(date +%s) + {{ .Values.operators.approvalTimeoutSeconds }} ))
+              while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+                pending=$(oc get installplan -n "$NS" -o jsonpath='{range .items[?(@.spec.approved==false)]}{.metadata.name}{" "}{end}' 2>/dev/null || true)
+                for ip in $pending; do
+                  echo "Approving $ip in $NS"
+                  oc patch installplan "$ip" -n "$NS" --type merge -p '{"spec":{"approved":true}}' || echo "patch failed for $ip, will retry"
+                done
+                installed=$(oc get subscription -n "$NS" -o jsonpath='{range .items[*]}{.status.installedCSV}{" "}{end}' 2>/dev/null || true)
+                if [ -n "$(echo "$installed" | tr -d ' ')" ]; then
+                  echo "Operator installed in $NS: $installed"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "Timed out after {{ .Values.operators.approvalTimeoutSeconds }}s waiting for an InstallPlan/CSV in $NS" >&2
+              exit 1
+{{- end }}

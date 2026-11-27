@@ -1,0 +1,13 @@
+{{- /*
+The evalhub platform namespace (hosts DSPA, Postgres, TrustyAIService, EvalHub).
+`opendatahub.io/dashboard: "true"` makes it appear in the dashboard's Projects
+dropdown — without it the UI shows "Start by creating your first Project".
+*/ -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.evalhub.namespace }}
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}

@@ -1,0 +1,155 @@
+# Default values for ai-safety-demo.
+# These defaults reproduce the V1.1 state proven on l68x6 with `oc apply -k overlays/rhdp`
+# (RHOAI 3.5.3 / stable-3.5, Manual InstallPlan approval, SeaweedFS 20Gi, DSPA + MLflow +
+# EvalHub garak-kfp single tenancy + TrustyAIService v1).
+#
+# Secrets: the SeaweedFS/Postgres values here are the same non-sensitive placeholders
+# already committed under manifests/. redteam-api-keys is NEVER templated by this chart
+# (create it imperatively in the evalhub namespace — see charts/ai-safety-demo/README.md).
+
+# CLI image used by the bootstrap/hook Jobs (oc patch, oc create secret).
+cli:
+  image: registry.redhat.io/openshift4/ose-cli:latest
+  imagePullPolicy: IfNotPresent
+
+operators:
+  # How long each InstallPlan approver Job polls before failing the sync (seconds).
+  # Must cover OLM creating the InstallPlan + CSV installing on a cold cluster.
+  approvalTimeoutSeconds: 900
+  # Pre-req operators, installed with Manual InstallPlan approval and approved by hook Jobs.
+  # Keep the CSV pins in step with the manifests/ layer if you bump RHOAI.
+  certManager:
+    enabled: true
+    namespace: openshift-cert-manager
+    channel: stable-v1
+    startingCSV: cert-manager-operator.v1.20.1
+  kueue:
+    enabled: true
+    namespace: kueue-system
+    channel: stable-v1.5
+    startingCSV: kueue-operator.v1.5.0
+  rhoai:
+    # Set false when the cluster already ships RHOAI (e.g. an RHDP catalog item that
+    # installs the operator). Skips the Namespace/Subscription/approver only; the DSC
+    # patch Job still runs, so the components are enabled either way.
+    enabled: true
+    namespace: redhat-ods-operator
+    channel: stable-3.5
+    startingCSV: rhods-operator.3.5.3
+
+rhoai:
+  # Merge-patched into DataScienceCluster/default-dsc by the patch-datasciencecluster Job.
+  dsc:
+    components:
+      aipipelines: Managed
+      kserve: Managed
+      # V1.1 lesson: TrustyAI needs the InferenceServices CRD, so kserve stays Managed even
+      # on no-GPU external-model runs.
+      kserveRawDeploymentServiceConfig: Headless
+      trustyai: Managed
+      mlflowoperator: Managed
+      kueue: Removed
+  # Dashboard flags needed for Develop & train -> Evaluations / external OpenAI-compatible targets.
+  dashboard:
+    disableLMEval: false
+    externalModels: true
+
+evalhub:
+  namespace: evalhub
+  name: evalhub
+  replicas: 1
+  # "single" — evalhub is the platform namespace, not a tenant.
+  tenancy: single
+  providers:
+    - garak-kfp
+  collections:
+    - safety-and-fairness-v1
+  database:
+    type: postgresql
+    # Holds db-url; created by the create-evalhub-db-credentials Job from the postgresql Secret.
+    secret: evalhub-db-credentials
+  env:
+    - name: MLFLOW_TRACKING_URI
+      value: https://mlflow.redhat-ods-applications.svc:8443/mlflow
+  trustyaiservice:
+    enabled: true
+    name: trustyai-service
+    # REQUIRED — omitting causes a silent operator panic (spec.storage.size parse error).
+    storageSize: 1Gi
+
+seaweedfs:
+  namespace: seaweedfs
+  # Pinned by digest — ghcr.io/minio replacement per IBM node/7289585 (quay.io auth-gated,
+  # docker.io denied on ROSA).
+  image: ghcr.io/chrislusf/seaweedfs@sha256:6620371e8af8282056685c652d4637265698c9e2c2d59f9594e6ac333ad6c634
+  replicas: 1
+  storage: 20Gi
+  bucket: evalhub
+  region: us-east-1
+  # Non-sensitive S3-compatible credentials (single-bucket demo). Override and keep out of
+  # git for anything real. All 5 AWS_* keys are required by KFP envFrom.
+  credentials:
+    accessKey: THEACCESSKEY
+    secretKey: THESECRETKEY
+
+dspa:
+  name: dspa
+  namespace: evalhub
+  apiServer:
+    deploy: true
+  mariaDB:
+    deploy: true
+    username: mlpipeline
+    pipelineDBName: mlpipeline
+  objectStorage:
+    # Defaults to the SeaweedFS bucket when empty.
+    bucket: ""
+    scheme: http
+    credentialsSecret: seaweedfs-evalhub-credentials
+
+postgres:
+  namespace: evalhub
+  name: postgresql
+  image: registry.redhat.io/rhel8/postgresql-16:latest
+  replicas: 1
+  storage: 5Gi
+  database: evalhub
+  user: evalhub
+  # Placeholder only — overwrite for any real deployment (kept identical to manifests/).
+  password: REPLACE_ME_GENERATE_16CHAR
+
+mlflow:
+  # Name MUST be "mlflow", namespace MUST be redhat-ods-applications.
+  name: mlflow
+  namespace: redhat-ods-applications
+  replicas: 1
+  storage: 10Gi
+  backendStoreUri: sqlite:////mlflow/mlflow.db
+  artifactsDestination: s3://mlflow/artifacts
+  defaultArtifactRoot: s3://mlflow/artifacts
+  s3SecretName: mlflow-s3-credentials
+
+# Argo CD sync waves — the same ordering overlays/rhdp enforces.
+syncWaves:
+  namespaces: "0"
+  operatorGroups: "0"
+  subscriptions: "0"
+  # Same wave as the Subscriptions: Argo's Subscription health check stays Progressing
+  # under Manual approval until the CSV installs, so an approver in a later wave deadlocks.
+  approveInstallPlans: "0"
+  configMaps: "1"
+  rhoaiConfig: "2"
+  storageAndCredentials: "2"
+  # Gate that waits for the DSPA/MLflow/EvalHub/TrustyAI CRDs before the CR waves.
+  crds: "3"
+  workloads: "3"
+  dspa: "4"
+  # MLflow RBAC must exist before the credential hook; the hook before the MLflow CR.
+  mlflowPrereqs: "3"
+  mlflowCredentials: "4"
+  mlflow: "5"
+  evalhub: "6"
+
+crds:
+  # How long the wait-for-CRDs hook polls before failing the sync (seconds).
+  waitTimeoutSeconds: 900

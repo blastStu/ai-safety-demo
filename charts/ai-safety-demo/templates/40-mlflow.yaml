@@ -1,0 +1,131 @@
+# Single MLflow instance per cluster — name MUST be "mlflow", namespace redhat-ods-applications.
+apiVersion: mlflow.opendatahub.io/v1
+kind: MLflow
+metadata:
+  name: {{ .Values.mlflow.name }}
+  namespace: {{ .Values.mlflow.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.mlflow | quote }}
+    # CRD may not exist at App validation time; wave 3 waits for it before this wave.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # v1 requires an explicit storage PVC when backendStoreUri is sqlite://… (3.5 migrated
+  # from v1alpha1) and defaultArtifactRoot when serveArtifacts is false (the default).
+  backendStoreUri: {{ .Values.mlflow.backendStoreUri | quote }}
+  artifactsDestination: {{ .Values.mlflow.artifactsDestination | quote }}
+  defaultArtifactRoot: {{ .Values.mlflow.defaultArtifactRoot | quote }}
+  # The v1 CRD has no s3SecretName field (it is pruned); inject the 4 AWS_*/endpoint
+  # keys the MLflow server's boto3 client reads via envFrom instead.
+  envFrom:
+    - secretRef:
+        name: {{ .Values.mlflow.s3SecretName | quote }}
+  replicas: {{ .Values.mlflow.replicas }}
+  storage:
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: {{ .Values.mlflow.storage }}
+---
+# RBAC for create-mlflow-s3-credentials: read the source Secret in seaweedfs and
+# create/update the derived Secret in the MLflow namespace. Applied one wave earlier
+# than the hook Job so the permissions exist when it runs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: read-seaweedfs-credentials
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.mlflowPrereqs | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: ["seaweedfs-secret"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-seaweedfs-credentials
+  namespace: {{ .Values.seaweedfs.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.mlflowPrereqs | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.mlflow.namespace }}
+roleRef:
+  kind: Role
+  name: read-seaweedfs-credentials
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: create-mlflow-s3-credentials
+  namespace: {{ .Values.mlflow.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.mlflowPrereqs | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "update", "patch"]
+    resourceNames: ["{{ .Values.mlflow.s3SecretName }}"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: create-mlflow-s3-credentials
+  namespace: {{ .Values.mlflow.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.mlflowPrereqs | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.mlflow.namespace }}
+roleRef:
+  kind: Role
+  name: create-mlflow-s3-credentials
+  apiGroup: rbac.authorization.k8s.io
+---
+# Copies the SeaweedFS S3 creds into redhat-ods-applications for MLflow's s3SecretName
+# (4-key shape: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION,
+# MLFLOW_S3_ENDPOINT_URL). Sync hook: re-runnable, and deleted after success.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-mlflow-s3-credentials
+  namespace: {{ .Values.mlflow.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.mlflowCredentials | quote }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: create-secret
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eo pipefail
+              # ose-cli has no jq: read each key with jsonpath + base64 -d into one
+              # quoted argument, then let oc build the Secret.
+              set --
+              for k in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+                v=$(oc get secret seaweedfs-secret -n {{ .Values.seaweedfs.namespace }} -o jsonpath="{.data.${k}}" | base64 -d)
+                [ -n "$v" ] || { echo "missing $k in seaweedfs-secret" >&2; exit 1; }
+                set -- "$@" --from-literal="${k}=${v}"
+              done
+              oc create secret generic {{ .Values.mlflow.s3SecretName }} -n {{ .Values.mlflow.namespace }} "$@" \
+                --from-literal=AWS_DEFAULT_REGION={{ .Values.seaweedfs.region }} \
+                --from-literal=MLFLOW_S3_ENDPOINT_URL=http://seaweedfs.{{ .Values.seaweedfs.namespace }}.svc.cluster.local:8333 \
+                --dry-run=client -o yaml | oc apply -f -
+              echo "created {{ .Values.mlflow.s3SecretName }} from seaweedfs-secret"
