@@ -2,10 +2,11 @@
 {{- if and .Values.operators.rhoai.enabled (not (and .Values.bases .Values.bases.rhoai)) }}
 {{- /*
 rhods-operator: Manual InstallPlan approval, CSV pinned (beta / 3.6.0-ea.2 by default).
-No OperatorGroup on purpose — vanilla ROSA already ships one in redhat-ods-operator;
-a second one causes TooManyOperatorGroups and CSV Failed.
-In 3.6 the platform operator is a Platform Orchestrator; KServe/Ray/TrustyAI become
-independent module operators managed by it — do NOT install them by hand.
+Bare clusters have no OperatorGroup in redhat-ods-operator (RHDP pre-stamped
+clusters ship one). Creating one when absent is idempotent; without it the
+Subscription never produces an InstallPlan. In 3.6 the platform operator is a
+Platform Orchestrator; KServe/Ray/TrustyAI become independent module operators
+managed by it — do NOT install them by hand.
 */ -}}
 apiVersion: v1
 kind: Namespace
@@ -13,6 +14,15 @@ metadata:
   name: {{ .Values.operators.rhoai.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhods-operator-group
+  namespace: {{ .Values.operators.rhoai.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.operatorGroups | quote }}
+spec: {}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

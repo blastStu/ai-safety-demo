@@ -57,11 +57,11 @@ gpu:
   nfd:
     namespace: openshift-nfd
     channel: stable
-    startingCSV: nfd.4.22.0
+    startingCSV: nfd.4.22.0-202611040403
   gpuOperator:
     namespace: nvidia-gpu-operator
-    channel: stable
-    startingCSV: gpu-operator-certified.v25.10.1
+    channel: v26.7
+    startingCSV: gpu-operator-certified.v26.7.3
 
 rhoai:
   # Merge-patched into DataScienceCluster/default-dsc by the patch-datasciencecluster Job.
