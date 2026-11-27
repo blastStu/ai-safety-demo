@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: approve-installplan
+  namespace: redhat-ods-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: approve
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              for i in 1 2 3 4 5; do
+                for ip in $(oc get installplan -n redhat-ods-operator -o jsonpath='{range .items[?(@.spec.approved==false)]}{.metadata.name}{" "}{end}' 2>/dev/null); do
+                  echo "Approving $ip in redhat-ods-operator"; oc patch installplan "$ip" -n redhat-ods-operator --type merge -p '{"spec":{"approved":true}}'
+                done
+                pending=$(oc get installplan -n redhat-ods-operator -o jsonpath='{range .items[?(@.spec.approved==false)]}{.metadata.name}{end}' 2>/dev/null)
+                [ -z "$pending" ] && exit 0
+                sleep 5
+              done

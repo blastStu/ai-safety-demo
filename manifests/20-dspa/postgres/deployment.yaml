@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: evalhub
+  labels:
+    app: postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: registry.redhat.io/rhel8/postgresql-16:latest
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom: {secretKeyRef: {name: postgresql, key: database-user}}
+            - name: POSTGRESQL_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgresql, key: database-password}}
+            - name: POSTGRESQL_DATABASE
+              valueFrom: {secretKeyRef: {name: postgresql, key: database-name}}
+            - name: PG_TRUST_LOCALNET
+              value: "true"
+          volumeMounts:
+            - name: postgresql-data
+              mountPath: /var/lib/pgsql/data
+          livenessProbe:
+            exec: {command: ["pg_isready", "-h", "localhost"]}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec: {command: ["pg_isready", "-h", "localhost"]}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: postgresql-data
+          persistentVolumeClaim: {claimName: postgresql}

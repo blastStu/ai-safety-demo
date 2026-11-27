@@ -1,7 +1,7 @@
 # Required for the dashboard's Develop & train → Evaluations UI (RHOAI >= 3.5, Tech Preview).
 # Each project namespace needs its own instance — trustyai: Managed installs the operator cluster-wide, but not this.
 # Apply after the evalhub namespace exists (manifests/40-garak/namespace.yaml) and after DSC trustyai: Managed is Ready.
-apiVersion: trustyai.opendatahub.io/v1alpha1
+apiVersion: trustyai.opendatahub.io/v1
 kind: TrustyAIService
 metadata:
   name: trustyai-service

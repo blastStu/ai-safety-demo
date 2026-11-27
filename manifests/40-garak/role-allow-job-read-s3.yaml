@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: evalhub-job-read-s3-credentials
+  namespace: evalhub
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["seaweedfs-evalhub-credentials"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: evalhub-job-read-s3-credentials
+  namespace: evalhub
+subjects:
+  - kind: ServiceAccount
+    name: evalhub-evalhub-job
+    namespace: evalhub
+roleRef:
+  kind: Role
+  name: evalhub-job-read-s3-credentials
+  apiGroup: rbac.authorization.k8s.io

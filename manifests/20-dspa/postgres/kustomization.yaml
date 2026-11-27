@@ -1,5 +1,7 @@
-# EvalHub's Postgres — distinct from DSPA's embedded MariaDB.
-# This is a DeploymentConfig via oc new-app template, not a plain Deployment.
-# Apply script runs: oc new-app --template=openshift/postgresql-persistent ...
-# This kustomization documents the expected state for later Argo drift checks.
-resources: []
+resources:
+  - rbac-create-evalhub-db.yaml
+  - secret.yaml
+  - pvc.yaml
+  - service.yaml
+  - deployment.yaml
+  - evalhub-db-credentials-job.yaml

@@ -1,0 +1,25 @@
+# TEMPLATE for the 7-key secret that garak-kfp and the Dashboard's Validate both read.
+# Keys: api-key (fallback for Validate), TARGET_API_KEY, JUDGE_API_KEY, EVALUATOR_API_KEY (= target token),
+#       SDG_API_KEY, ATTACKER_API_KEY (= abliterated token), plus k8s_url/k8s_sa_token for result download (bug 8).
+# Do NOT commit real tokens — create imperatively:
+#   oc create secret generic redteam-api-keys -n evalhub \
+#     --from-literal=api-key="<TARGET_TOKEN>" --from-literal=TARGET_API_KEY="<TARGET_TOKEN>" --from-literal=JUDGE_API_KEY="<TARGET_TOKEN>" --from-literal=EVALUATOR_API_KEY="<TARGET_TOKEN>" \
+#     --from-literal=SDG_API_KEY="<ABL_TOKEN>" --from-literal=ATTACKER_API_KEY="<ABL_TOKEN>" \
+#     --from-literal=k8s_url="https://api.<your-cluster>:443" --from-literal=k8s_sa_token="" \
+#     --dry-run=client -o yaml | oc apply -f -
+# For GitOps, use SealedSecret or ExternalSecret to generate this from your vault; this file is a shape reference only.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redteam-api-keys
+  namespace: evalhub
+type: Opaque
+stringData:
+  api-key: REPLACE_ME_TARGET_TOKEN
+  TARGET_API_KEY: REPLACE_ME_TARGET_TOKEN
+  JUDGE_API_KEY: REPLACE_ME_TARGET_TOKEN
+  EVALUATOR_API_KEY: REPLACE_ME_TARGET_TOKEN
+  SDG_API_KEY: REPLACE_ME_ABLITERATED_TOKEN
+  ATTACKER_API_KEY: REPLACE_ME_ABLITERATED_TOKEN
+  k8s_url: https://REPLACE_ME_API_HOST:443
+  k8s_sa_token: ""

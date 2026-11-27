@@ -1,3 +1,6 @@
 resources:
   - mlflow.yaml
-  - s3-credentials.yaml
+  - s3-credentials-job.yaml
+# s3-credentials.template.yaml is a shape reference for the 4-key secret that MLflow mounts
+# (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION, MLFLOW_S3_ENDPOINT_URL)
+# — create it imperatively via the Job above that copies seaweedfs-secret, never commit real values.
