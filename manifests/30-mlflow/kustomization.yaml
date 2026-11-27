@@ -1,4 +1,5 @@
 resources:
+  - rbac-read-seaweedfs.yaml
   - mlflow.yaml
   - s3-credentials-job.yaml
 # s3-credentials.template.yaml is a shape reference for the 4-key secret that MLflow mounts

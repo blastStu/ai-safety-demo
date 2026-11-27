@@ -21,8 +21,8 @@ Baseline → SPO → TAP, with the current JSON it's `intents_models` all-or-one
 ## Before you touch anything
 
 1. **Read [README.md](README.md) once.** It is the runbook for both deployment paths
-   (scripts vs Helm) and matches the current `helm-v1.1` commit. Do not repeat its install
-   commands here — link to it. This file only adds agent-specific orientation.
+   (scripts vs Helm) and matches the current commit. Do not repeat its install
+   commands here — link to it.
 2. Check your environment variables before assuming defaults. The user's actual
    credentials may differ from placeholders.
 
@@ -36,7 +36,7 @@ Baseline → SPO → TAP, with the current JSON it's `intents_models` all-or-one
   ```
 - The repo's scripts and Helm chart both install from that starting point. Don't try to
   pre-install RHOAI, cert-manager, NFD, or the GPU Operator by hand — the setup below does it.
-  RHOAI 3.6 EA2 docs live under the **3.5 documentation root** (upstream quirk); if you go read
+  RHOAI 3.6 EA docs live under the **3.5 documentation root** (upstream quirk); if you go read
   docs, use the 3.6 EA release notes there. Don't chase a floating `main` of upstream odh-gitops.
 
 ## How to stand it up
@@ -93,18 +93,14 @@ oc get nodes -o json | jq -r '.items[] | "\(.metadata.name): nvidia.com/gpu=\(.s
 - `oc apply --dry-run=server` on a bare cluster will complain about DSC/EvalHub CRDs until RHOAI
   CSVs are Succeeded — expected. The chart's Argo gate handles this; for scripts, finish `02` first.
 - The Dashboard Evaluations page is hidden unless `disableLMEval: false` + `externalModels: true` +
-  `modelCapabilities: true` are set — they are in the patched `OdhDashboardConfig`; a browser refresh
+  `modelCapabilities: true` are set — they are in the patched dashboard config; a browser refresh
   is enough.
 - 3.6 GA will move RHOAI from `beta` to `stable-3.6` with a new CSV — bump both
   `charts/ai-safety-demo/values.yaml` and `manifests/10-rhoai/rhods-operator/subscription.yaml` then.
 
-## For the rare maintainer pass (not your day job here)
+## For the rare maintainer pass
 
 If you're actually changing this repo, not just running it: keep Helm and Kustomize pins in sync
 (channel/CSV + dashboard flags), derive `packagemanifest` channels live (don't hardcode), don't
 template `redteam-api-keys`, and run `helm lint --strict` (also ` --set gpu.enabled=true`) plus
-`bash -n scripts/*.sh` before pushing. Commits on `helm-v1.1` end with
-`Co-Authored-By: Claude Code <noreply@anthropic.com>`. Gitignored scratch lives in `local/`
-(HANDOFF there still describes the 2026-11-20 `sbatters-gitops` 3.5.3 cluster — narrative is fine,
-versions are stale).
-
+`bash -n scripts/*.sh` before pushing.

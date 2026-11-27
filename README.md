@@ -250,5 +250,5 @@ are created by the scripts/chart (SeaweedFS placeholder `THEACCESSKEY` / Postgre
 
 - RHOAI: [3.6 EA release notes (under 3.5 docs root)](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/3.6_early_access_release_notes/index) · [Garak risk assessment](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/evaluating_ai_systems/test-model-safety-with-automated-risk-assessment_evaluate) · [NeMo Guardrails](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/enabling_ai_safety_with_guardrails/enabling-ai-safety-with-nemo-guardrails_nemo-guardrails)
 - NVIDIA GPU Operator: [docs](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/overview.html) (channel/CSV always derived live from `packagemanifest gpu-operator-certified`)
-- This repo's platform notes: [HANDOFF.md](HANDOFF.md) · [charts/ai-safety-demo/README.md](charts/ai-safety-demo/README.md) · [rosa-cluster-skill](https://github.com/blastStu/rosa-cluster-skill) (ROSA HCP + GPU + RHOAI provisioning reference)
+- Platform notes: [charts/ai-safety-demo/README.md](charts/ai-safety-demo/README.md) · [rosa-cluster-skill](https://github.com/blastStu/rosa-cluster-skill) (ROSA HCP + GPU + RHOAI provisioning reference)
 

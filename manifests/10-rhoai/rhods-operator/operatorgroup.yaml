@@ -1,0 +1,11 @@
+# Bare-cluster case: some OCP distributions ship an OperatorGroup in
+# redhat-ods-operator; bare clusters with no pre-installed operators have none
+# and the RHOAI Subscription then never produces an InstallPlan. Applying this
+# minimal OG when one already exists is a no-op; on a bare cluster it unblocks
+# the subscription.
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhods-operator-group
+  namespace: redhat-ods-operator
+spec: {}

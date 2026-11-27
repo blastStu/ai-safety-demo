@@ -1,6 +1,7 @@
 # Merge patch for DataScienceCluster/default-dsc
 # Apply: oc patch datasciencecluster default-dsc --type=merge --patch-file manifests/10-rhoai/dsc-patch.yaml
 # Or:  oc apply -k manifests/10-rhoai  (if using the Kustomize wrapper that includes this patch)
+# 3.6 note: odhdashboardconfig no longer exists — dashboard flags are on DSC; see below.
 apiVersion: datasciencecluster.opendatahub.io/v2
 kind: DataScienceCluster
 metadata:
@@ -38,9 +39,16 @@ spec:
       managementState: Removed
     trainer:
       managementState: Removed
-    trainingoperator:
-      managementState: Removed
     feastoperator:
       managementState: Removed
     llamastackoperator:
+      managementState: Removed
+    # 3.6 new components kept Removed unless needed (bare-cluster 2026-11-27):
+    ogx:
+      managementState: Removed
+    mcplifecycleoperator:
+      managementState: Removed
+    aigateway:
+      managementState: Removed
+    sparkoperator:
       managementState: Removed

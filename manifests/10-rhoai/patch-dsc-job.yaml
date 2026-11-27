@@ -17,12 +17,24 @@ spec:
             - /bin/sh
             - -c
             - |
-              echo "Patching DataScienceCluster default-dsc to V1.1 set (aipipelines, kserve, trustyai, mlflowoperator Managed)"
+              set -e
+              # 3.6 bare-cluster: the operator no longer auto-creates default-dsc; create it
+              # from the desired patch if it's missing (live check covers both cases).
+              if ! oc get datasciencecluster default-dsc >/dev/null 2>&1; then
+                echo "default-dsc not found — creating from manifests/10-rhoai/dsc-patch.yaml..."
+                oc apply -f /manifests/dsc-patch.yaml
+              fi
+              echo "Patching DataScienceCluster default-dsc..."
               oc patch datasciencecluster default-dsc --type=merge --patch-file=/manifests/dsc-patch.yaml
               echo "Patched DSC"
-              # also patch dashboard
-              oc patch odhdashboardconfig odh-dashboard-config -n redhat-ods-applications --type=merge --patch-file=/manifests/odhdashboardconfig-patch.yaml
-              echo "Patched OdhDashboardConfig"
+              # 3.6: OdhDashboardConfig CR no longer exists (dashboard is now a DSC component).
+              # Best-effort only; ignore on 3.6, required on 3.5.
+              if oc get odhdashboardconfig odh-dashboard-config -n redhat-ods-applications >/dev/null 2>&1; then
+                oc patch odhdashboardconfig odh-dashboard-config -n redhat-ods-applications --type=merge --patch-file=/manifests/odhdashboardconfig-patch.yaml
+                echo "Patched OdhDashboardConfig"
+              else
+                echo "OdhDashboardConfig not present (expected on 3.6) — skipping"
+              fi
           volumeMounts:
             - name: manifests
               mountPath: /manifests
@@ -38,8 +50,17 @@ metadata:
   namespace: redhat-ods-operator
 data:
   dsc-patch.yaml: |
+    apiVersion: datasciencecluster.opendatahub.io/v2
+    kind: DataScienceCluster
+    metadata:
+      name: default-dsc
     spec:
       components:
+        dashboard:
+          managementState: Managed
+        workbenches:
+          managementState: Managed
+          workbenchNamespace: rhods-notebooks
         aipipelines:
           managementState: Managed
         kserve:
@@ -47,15 +68,34 @@ data:
           rawDeploymentServiceConfig: Headless
           nim:
             managementState: Removed
-          wva:
-            managementState: Removed
           modelsAsService:
+            managementState: Removed
+          wva:
             managementState: Removed
         trustyai:
           managementState: Managed
         mlflowoperator:
           managementState: Managed
         kueue:
+          managementState: Removed
+        modelregistry:
+          managementState: Removed
+          registriesNamespace: rhoai-model-registries
+        ray:
+          managementState: Removed
+        trainer:
+          managementState: Removed
+        feastoperator:
+          managementState: Removed
+        llamastackoperator:
+          managementState: Removed
+        ogx:
+          managementState: Removed
+        mcplifecycleoperator:
+          managementState: Removed
+        aigateway:
+          managementState: Removed
+        sparkoperator:
           managementState: Removed
   odhdashboardconfig-patch.yaml: |
     spec:

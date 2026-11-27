@@ -1,0 +1,49 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: read-seaweedfs-credentials
+  namespace: seaweedfs
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: ["seaweedfs-secret"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-seaweedfs-credentials
+  namespace: seaweedfs
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: redhat-ods-applications
+roleRef:
+  kind: Role
+  name: read-seaweedfs-credentials
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: create-mlflow-s3-credentials
+  namespace: redhat-ods-applications
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "update", "patch"]
+    resourceNames: ["mlflow-s3-credentials"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: create-mlflow-s3-credentials
+  namespace: redhat-ods-applications
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: redhat-ods-applications
+roleRef:
+  kind: Role
+  name: create-mlflow-s3-credentials
+  apiGroup: rbac.authorization.k8s.io
