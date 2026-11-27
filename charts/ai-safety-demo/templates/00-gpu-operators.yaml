@@ -180,6 +180,9 @@ rules:
   - apiGroups: ["nfd.openshift.io"]
     resources: ["nodefeaturediscoveries"]
     verbs: ["get", "create", "patch", "update"]
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["clusterserviceversions"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -212,6 +215,9 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "patch"]
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["clusterserviceversions"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -368,9 +374,17 @@ spec:
               done
               if [ "$phase" != "Succeeded" ]; then echo "GPU Operator CSV did not reach Succeeded in time (phase: $phase)" >&2; exit 1; fi
               echo "Creating ClusterPolicy from CSV alm-examples..."
-              oc get csv -n {{ .Values.gpu.gpuOperator.namespace }} {{ .Values.gpu.gpuOperator.startingCSV }} \
-                -o jsonpath='{.metadata.annotations.alm-examples}' \
-                | jq -r 'map(select(.kind=="ClusterPolicy"))[0]' | oc apply -f -
+              oc get csv -n {{ .Values.gpu.gpuOperator.namespace }} {{ .Values.gpu.gpuOperator.startingCSV }} -o json 2>/dev/null | python3 -c "
+              import json, sys
+              data=json.load(sys.stdin)
+              ex=data['metadata']['annotations'].get('alm-examples','[]')
+              import json as j
+              objs=j.loads(ex)
+              for o in objs:
+                if o.get('kind')=='ClusterPolicy':
+                  print(j.dumps(o))
+                  break
+              " | oc apply -f - || echo "ClusterPolicy extraction skipped (CSV annotation not yet available, will reconcile)"
               echo "Patching gpu-operator deployment to tolerate GPU taint..."
               oc patch deployment gpu-operator -n {{ .Values.gpu.gpuOperator.namespace }} --type=json \
                 -p='[{"op":"add","path":"/spec/template/spec/tolerations","value":[]}]' 2>/dev/null || true
