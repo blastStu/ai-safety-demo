@@ -1,7 +1,8 @@
 # Default values for ai-safety-demo.
 # These defaults reproduce the V1.1 state proven on l68x6 with `oc apply -k overlays/rhdp`
-# (RHOAI 3.5.3 / stable-3.5, Manual InstallPlan approval, SeaweedFS 20Gi, DSPA + MLflow +
-# EvalHub garak-kfp single tenancy + TrustyAIService v1).
+# (RHOAI 3.6 EA2 / beta channel, Manual InstallPlan approval, SeaweedFS 20Gi, DSPA + MLflow
+# + EvalHub garak-kfp single tenancy + TrustyAIService v1, optional GPU via NFD + NVIDIA GPU Operator).
+# For RHOAI 3.6 EA2 the docs live under the 3.5 documentation root — see rosa-cluster-skill/references/rhoai-3.6-ea2.md.
 #
 # Secrets: the SeaweedFS/Postgres values here are the same non-sensitive placeholders
 # already committed under manifests/. redteam-api-keys is NEVER templated by this chart
@@ -34,8 +35,24 @@ operators:
     # patch Job still runs, so the components are enabled either way.
     enabled: true
     namespace: redhat-ods-operator
-    channel: stable-3.5
-    startingCSV: rhods-operator.3.5.3
+    # RHOAI 3.6 EA2 — beta channel. Final GA will move to stable-3.6.
+    channel: beta
+    startingCSV: rhods-operator.3.6.0-ea.2
+
+# GPU stack — NFD + NVIDIA GPU Operator. Enable when the cluster has a GPU machine pool.
+# The pool itself is provisioned outside the chart (rosa create machinepool or RHDP cluster spec);
+# the chart installs the operators that expose nvidia.com/gpu as a schedulable resource.
+gpu:
+  enabled: false
+  nfd:
+    namespace: openshift-nfd
+    channel: stable
+    # Pin to the current defaultChannel at time of chart cut; override via --set if the catalog moves.
+    startingCSV: nfd.4.22.0
+  gpuOperator:
+    namespace: nvidia-gpu-operator
+    channel: stable
+    startingCSV: gpu-operator-certified.v25.10.1
 
 rhoai:
   # Merge-patched into DataScienceCluster/default-dsc by the patch-datasciencecluster Job.
@@ -44,15 +61,18 @@ rhoai:
       aipipelines: Managed
       kserve: Managed
       # V1.1 lesson: TrustyAI needs the InferenceServices CRD, so kserve stays Managed even
-      # on no-GPU external-model runs.
+      # on no-GPU external-model runs. In 3.6 the platform operator is a Platform Orchestrator
+      # and KServe/Ray/TrustyAI are independent module operators — do NOT install them by hand.
       kserveRawDeploymentServiceConfig: Headless
       trustyai: Managed
       mlflowoperator: Managed
       kueue: Removed
   # Dashboard flags needed for Develop & train -> Evaluations / external OpenAI-compatible targets.
+  # 3.6 EA2 adds modelCapabilities (tool calling / vision / streaming columns).
   dashboard:
     disableLMEval: false
     externalModels: true
+    modelCapabilities: true
 
 evalhub:
   namespace: evalhub
@@ -129,7 +149,7 @@ mlflow:
   defaultArtifactRoot: s3://mlflow/artifacts
   s3SecretName: mlflow-s3-credentials
 
-# Argo CD sync waves — the same ordering overlays/rhdp enforces.
+# Argo CD sync waves — extended from overlays/rhdp to include GPU operators.
 syncWaves:
   namespaces: "0"
   operatorGroups: "0"

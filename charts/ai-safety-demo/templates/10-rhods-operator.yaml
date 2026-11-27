@@ -1,9 +1,11 @@
 {{- /* RHDP bases already install RHOAI, so bases.rhoai=true forces this off. */ -}}
 {{- if and .Values.operators.rhoai.enabled (not (and .Values.bases .Values.bases.rhoai)) }}
 {{- /*
-rhods-operator: Manual InstallPlan approval, CSV pinned to 3.5.3 (stable-3.5).
+rhods-operator: Manual InstallPlan approval, CSV pinned (beta / 3.6.0-ea.2 by default).
 No OperatorGroup on purpose — vanilla ROSA already ships one in redhat-ods-operator;
-a second one causes TooManyOperatorGroups and rhods-operator.3.5.3 Failed.
+a second one causes TooManyOperatorGroups and CSV Failed.
+In 3.6 the platform operator is a Platform Orchestrator; KServe/Ray/TrustyAI become
+independent module operators managed by it — do NOT install them by hand.
 */ -}}
 apiVersion: v1
 kind: Namespace

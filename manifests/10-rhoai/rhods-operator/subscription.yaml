@@ -1,13 +1,15 @@
 # Pins the desired operator state for reproducibility.
+# RHOAI 3.6 EA2 — beta channel (early access, docs under 3.5 root).
+# For GA, switch channel to stable-3.6 and bump startingCSV to the GA release.
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: rhods-operator
   namespace: redhat-ods-operator
 spec:
-  channel: stable-3.5
+  channel: beta
   name: rhods-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
   installPlanApproval: Manual
-  startingCSV: rhods-operator.3.5.3
+  startingCSV: rhods-operator.3.6.0-ea.2

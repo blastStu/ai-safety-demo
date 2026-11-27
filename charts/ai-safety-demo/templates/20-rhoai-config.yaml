@@ -66,6 +66,7 @@ data:
       dashboardConfig:
         disableLMEval: {{ .Values.rhoai.dashboard.disableLMEval }}
         externalModels: {{ .Values.rhoai.dashboard.externalModels }}
+        modelCapabilities: {{ .Values.rhoai.dashboard.modelCapabilities }}
 ---
 apiVersion: batch/v1
 kind: Job

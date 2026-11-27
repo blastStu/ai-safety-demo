@@ -1,4 +1,5 @@
-# Enable dashboard feature flags needed for EvalHub UI in RHOAI 3.5.3.
+# Enable dashboard feature flags needed for EvalHub UI.
+# 3.6 EA2 adds modelCapabilities (tool calling / vision / streaming columns).
 # Apply: oc patch odhdashboardconfig odh-dashboard-config -n redhat-ods-applications --type=merge --patch-file manifests/10-rhoai/odhdashboardconfig-patch.yaml
 # Or:    oc apply -k manifests/10-rhoai (if this patch is listed in its kustomization)
 # Effect: immediate on browser refresh — no dashboard restart required.
@@ -9,9 +10,10 @@ metadata:
   namespace: redhat-ods-applications
 spec:
   dashboardConfig:
-    # Core for V1.1 — without these the Evaluations tab is hidden and external target URLs are blocked:
+    # Core — without these the Evaluations tab is hidden and external target URLs are blocked:
     disableLMEval: false        # double-negative: false = enable both LM Eval + Safety insights
     externalModels: true        # allow external OpenAI-compatible endpoint in Eval form
+    modelCapabilities: true     # 3.6+: capability columns in deployment wizard
     # Full recommended set (avoid "Unavailable in the cluster" whack-a-mole — skill Step 7.9.6):
     disableTracking: false
     connectionTest: true

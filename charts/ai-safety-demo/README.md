@@ -1,9 +1,12 @@
 # ai-safety-demo Helm chart
 
-Helm port of [`overlays/rhdp`](../../overlays/rhdp) for the RHDP **Existing GitOps Repo
-→ Path** field. Rendering this chart produces the same resources that
-`oc apply -k overlays/rhdp` does at `gitops-v1.1` (040d1af), but without requiring
+Helm chart for the RHDP **Existing GitOps Repo → Path** field. Rendering this chart
+produces the same resources that `oc apply -k overlays/rhdp` does, but without requiring
 Kustomize at sync time, so Argo CD can use `source.helm` directly.
+
+Provenance: ported from `overlays/rhdp` at `gitops-v1.1` (040d1af), now tracking
+RHOAI **3.6 EA2** (`beta` / `rhods-operator.3.6.0-ea.2`) with optional GPU (NFD + NVIDIA GPU
+Operator) for in-cluster model serving. See the Helm chart's `values.yaml` for defaults.
 
 Verified RHOAI 3.5.3 baseline: DSPA `Ready True`, MLflow `Available True`,
 EvalHub `Ready True`, `Develop & train → Evaluations → Start → garak-kfp`.
@@ -69,7 +72,8 @@ Gates on the RHDP cluster:
 | `00-namespaces.yaml` | `evalhub` namespace (`opendatahub.io/dashboard: "true"`) |
 | `00-cert-manager.yaml` | cert-manager Namespace/OperatorGroup/Subscription + approver RBAC + blocking InstallPlan approver |
 | `00-kueue-operator.yaml` | kueue Namespace/OperatorGroup/Subscription + approver RBAC + blocking InstallPlan approver |
-| `10-rhods-operator.yaml` | rhods-operator Namespace/Subscription (no OperatorGroup) + approver RBAC + blocking approver |
+| `00-gpu-operators.yaml` | NFD + NVIDIA GPU Operator (conditional on `gpu.enabled`) — OwnNamespace OGs, PCI label fix, GPU taint tolerations, ClusterPolicy |
+| `10-rhods-operator.yaml` | rhods-operator Namespace/Subscription (no OperatorGroup) + approver RBAC + blocking approver (`beta` / `3.6.0-ea.2`) |
 | `20-rhoai-config.yaml` | `patch-datasciencecluster` ClusterRole/Binding + ConfigMap + patch hook Job |
 | `20-storage-seaweedfs.yaml` | SeaweedFS Namespace/PVC/Secret/ConfigMap/Deployment/Service/Routes + credential-copy hook Job |
 | `20-storage-postgres.yaml` | Postgres Role/Secret/PVC/Service/Deployment + DB credential hook Job |
@@ -135,13 +139,15 @@ helm template ai-safety-demo charts/ai-safety-demo \
 
 Common knobs:
 
-- `operators.*` — namespaces, channels and pinned CSVs (`stable-3.5`, `rhods-operator.3.5.3`).
+- `operators.*` — namespaces, channels and pinned CSVs (`beta`, `rhods-operator.3.6.0-ea.2` by default).
 - `operators.rhoai.enabled` — set `false` when RHOAI is already installed; skips the
   Namespace/Subscription/approver, the DSC patch Job still runs.
+- `gpu.enabled` — enable NFD + GPU Operator when the cluster has a GPU machine pool. The pool
+  itself is provisioned outside the chart (RHDP cluster spec or `rosa create machinepool`).
 - `crds.waitTimeoutSeconds` — how long the CRD wait gate polls before failing (default 900).
 - `operators.approvalTimeoutSeconds` — how long each InstallPlan approver polls (default 900).
 - `rhoai.dsc.components.*` — component management states merged into `DataScienceCluster`.
-- `rhoai.dashboard.*` — `disableLMEval` / `externalModels` flags.
+- `rhoai.dashboard.*` — `disableLMEval` / `externalModels` / `modelCapabilities` (3.6+) flags.
 - `seaweedfs.image|storage|bucket|region|credentials.*` — object storage.
 - `postgres.image|storage|database|user|password` — EvalHub database.
 - `mlflow.storage` — MLflow PVC size.
@@ -190,7 +196,8 @@ oc create secret generic redteam-api-keys -n evalhub \
   quoting/injection hazard and all 5 AWS keys stay in sync.
 - `AWS_DEFAULT_REGION` in `mlflow-s3-credentials` is properly base64-encoded
   (`dXMtZWFzdC0x`); the Kustomize manifest wrote the literal `us-east-1` into `.data`.
-- `overlays/rhdp` stays Kustomize, unchanged, for `oc apply -k` parity.
+- `overlays/rhdp` and `manifests/` are kept for `oc apply -k` / script-based flows but track
+  the same RHOAI 3.6 EA2 defaults; the Helm chart is the canonical RHDP path.
 
 > `helm template ... | oc apply --dry-run=server -f -` only works once the RHOAI CRDs
 > exist. On a truly fresh cluster it reports `resource mapping not found` for

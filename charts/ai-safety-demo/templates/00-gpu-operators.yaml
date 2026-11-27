@@ -1,0 +1,331 @@
+{{- /*
+GPU stack: Node Feature Discovery + NVIDIA GPU Operator.
+Enabled when the cluster has a GPU machine pool (provisioned outside the chart via
+rosa create machinepool or the RHDP cluster spec). When the pool is absent the operators
+still install but have nothing to schedule — harmless and verified on CPU-only clusters.
+Follows the rosa-cluster-skill Step 6 patterns (OwnNamespace OperatorGroups, PCI label
+source fix, GPU-taint toleration on nfd-worker and gpu-operator manager, ClusterPolicy
+from CSV alm-examples).
+
+Gate: gpu.enabled=true. RHDP can set this via source.helm.values or leave it off for
+CPU-only demos. A plain `helm install` also picks it up with --set gpu.enabled=true.
+*/ -}}
+{{- if .Values.gpu.enabled }}
+{{- /* ── NFD ── */ -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.gpu.nfd.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: nfd-operatorgroup
+  namespace: {{ .Values.gpu.nfd.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.operatorGroups | quote }}
+spec:
+  targetNamespaces:
+    - {{ .Values.gpu.nfd.namespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: nfd
+  namespace: {{ .Values.gpu.nfd.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.subscriptions | quote }}
+spec:
+  channel: {{ .Values.gpu.nfd.channel }}
+  name: nfd
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Manual
+  startingCSV: {{ .Values.gpu.nfd.startingCSV }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.gpu.nfd.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["installplans"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["subscriptions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.gpu.nfd.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.gpu.nfd.namespace }}
+roleRef:
+  kind: Role
+  name: approve-installplan
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.gpu.nfd.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.approveInstallPlans | quote }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: approve
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              NS={{ .Values.gpu.nfd.namespace }}
+              DEADLINE=$(( $(date +%s) + {{ .Values.operators.approvalTimeoutSeconds }} ))
+              while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+                pending=$(oc get installplan -n "$NS" -o jsonpath='{range .items[?(@.spec.approved==false)]}{.metadata.name}{" "}{end}' 2>/dev/null || true)
+                for ip in $pending; do
+                  echo "Approving $ip in $NS"
+                  oc patch installplan "$ip" -n "$NS" --type merge -p '{"spec":{"approved":true}}' || echo "patch failed for $ip, will retry"
+                done
+                installed=$(oc get subscription -n "$NS" -o jsonpath='{range .items[*]}{.status.installedCSV}{" "}{end}' 2>/dev/null || true)
+                if [ -n "$(echo "$installed" | tr -d ' ')" ]; then
+                  echo "Operator installed in $NS: $installed"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "Timed out after {{ .Values.operators.approvalTimeoutSeconds }}s waiting for InstallPlan/CSV in $NS" >&2
+              exit 1
+---
+# NFD CR — created only after the NFD CSV is Succeeded (via the approve job above + wait).
+# PCI labelSources must be "all" on OCP 4.22 (off by default → no pci-* labels).
+# workerTolerations lets nfd-worker land on tainted GPU nodes (nvidia.com/gpu=true:NoSchedule).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: configure-nfd
+  namespace: {{ .Values.gpu.nfd.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.rhoaiConfig | quote }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: configure
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for NFD CSV to be Succeeded..."
+              DEADLINE=$(( $(date +%s) + {{ .Values.operators.approvalTimeoutSeconds }} ))
+              while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+                phase=$(oc get csv -n {{ .Values.gpu.nfd.namespace }} {{ .Values.gpu.nfd.startingCSV }} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+                if [ "$phase" = "Succeeded" ]; then echo "NFD CSV Succeeded"; break; fi
+                echo "NFD CSV phase: ${phase:-not found} — waiting..."
+                sleep 5
+              done
+              if [ "$phase" != "Succeeded" ]; then echo "NFD CSV did not reach Succeeded in time (phase: $phase)" >&2; exit 1; fi
+              echo "Creating NodeFeatureDiscovery CR..."
+              cat <<'NFDEOF' | oc apply -f -
+              apiVersion: nfd.openshift.io/v1
+              kind: NodeFeatureDiscovery
+              metadata:
+                name: nfd-instance
+                namespace: {{ .Values.gpu.nfd.namespace }}
+              spec:
+                operand:
+                  workerTolerations:
+                    - key: "nvidia.com/gpu"
+                      operator: "Exists"
+                      effect: "NoSchedule"
+                workerConfig:
+                  configData: |
+                    core:
+                      labelSources: ["all"]
+              NFDEOF
+              echo "Restarting nfd-worker so new labelSources take effect..."
+              oc rollout restart ds/nfd-worker -n {{ .Values.gpu.nfd.namespace }} 2>/dev/null || echo "nfd-worker DS not yet created, will appear shortly"
+              echo "NFD configured"
+---
+{{- /* ── NVIDIA GPU Operator ── */ -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.gpu.gpuOperator.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: gpu-operator-group
+  namespace: {{ .Values.gpu.gpuOperator.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.operatorGroups | quote }}
+spec:
+  targetNamespaces:
+    - {{ .Values.gpu.gpuOperator.namespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: gpu-operator-certified
+  namespace: {{ .Values.gpu.gpuOperator.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.subscriptions | quote }}
+spec:
+  channel: {{ .Values.gpu.gpuOperator.channel }}
+  name: gpu-operator-certified
+  source: certified-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Manual
+  startingCSV: {{ .Values.gpu.gpuOperator.startingCSV }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.gpu.gpuOperator.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["installplans"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["operators.coreos.com"]
+    resources: ["subscriptions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.gpu.gpuOperator.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.gpu.gpuOperator.namespace }}
+roleRef:
+  kind: Role
+  name: approve-installplan
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: approve-installplan
+  namespace: {{ .Values.gpu.gpuOperator.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.approveInstallPlans | quote }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: approve
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              NS={{ .Values.gpu.gpuOperator.namespace }}
+              DEADLINE=$(( $(date +%s) + {{ .Values.operators.approvalTimeoutSeconds }} ))
+              while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+                pending=$(oc get installplan -n "$NS" -o jsonpath='{range .items[?(@.spec.approved==false)]}{.metadata.name}{" "}{end}' 2>/dev/null || true)
+                for ip in $pending; do
+                  echo "Approving $ip in $NS"
+                  oc patch installplan "$ip" -n "$NS" --type merge -p '{"spec":{"approved":true}}' || echo "patch failed for $ip, will retry"
+                done
+                installed=$(oc get subscription -n "$NS" -o jsonpath='{range .items[*]}{.status.installedCSV}{" "}{end}' 2>/dev/null || true)
+                if [ -n "$(echo "$installed" | tr -d ' ')" ]; then
+                  echo "Operator installed in $NS: $installed"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "Timed out after {{ .Values.operators.approvalTimeoutSeconds }}s waiting for InstallPlan/CSV in $NS" >&2
+              exit 1
+---
+# ClusterPolicy + gpu-operator toleration patch. Runs after the GPU Operator CSV is Succeeded.
+# ClusterPolicy is extracted from the CSV's alm-examples (sets use_ocp_driver_toolkit: true — no RHEL entitlement needed).
+# The toleration patch keeps the gpu-operator manager schedulable when CPU nodes are down.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: configure-gpu-operator
+  namespace: {{ .Values.gpu.gpuOperator.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.rhoaiConfig | quote }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: configure
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for GPU Operator CSV to be Succeeded..."
+              DEADLINE=$(( $(date +%s) + {{ .Values.operators.approvalTimeoutSeconds }} ))
+              while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+                phase=$(oc get csv -n {{ .Values.gpu.gpuOperator.namespace }} {{ .Values.gpu.gpuOperator.startingCSV }} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+                if [ "$phase" = "Succeeded" ]; then echo "GPU Operator CSV Succeeded"; break; fi
+                echo "GPU Operator CSV phase: ${phase:-not found} — waiting..."
+                sleep 5
+              done
+              if [ "$phase" != "Succeeded" ]; then echo "GPU Operator CSV did not reach Succeeded in time (phase: $phase)" >&2; exit 1; fi
+              echo "Creating ClusterPolicy from CSV alm-examples..."
+              oc get csv -n {{ .Values.gpu.gpuOperator.namespace }} {{ .Values.gpu.gpuOperator.startingCSV }} \
+                -o jsonpath='{.metadata.annotations.alm-examples}' \
+                | jq -r 'map(select(.kind=="ClusterPolicy"))[0]' | oc apply -f -
+              echo "Patching gpu-operator deployment to tolerate GPU taint..."
+              oc patch deployment gpu-operator -n {{ .Values.gpu.gpuOperator.namespace }} --type=json \
+                -p='[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]}]' 2>/dev/null \
+                || echo "gpu-operator toleration patch skipped (already present or deployment not yet ready)"
+              echo "GPU Operator configured — ClusterPolicy created"
+{{- end }}
