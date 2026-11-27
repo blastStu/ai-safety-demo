@@ -1,10 +1,9 @@
 {{- /*
 GPU MachineSet for RHDP/IPI clusters (k9xjn): clones an existing worker-compute
-MachineSet (oc get machineset -o json | jq) and patches instanceType/accelerator
-label/taint — same primitive as local/gpu-machineset.sh but non-interactive and
-declarative. Off on ROSA (there it's a NodePool via rosa create machinepool).
-
-Gate: gpu.machinePool.create=true. Early wave so nodes land before NFD/GPU Operator.
+MachineSet and patches instanceType/accelerator label/taint — same primitive as
+the local shell script but non-interactive and declarative. Off on ROSA (there
+it's a NodePool via ROSA CLI). Gate: gpu.machinePool.create=true.
+Early wave so nodes land before NFD/GPU Operator.
 */ -}}
 {{- if and .Values.gpu.enabled .Values.gpu.machinePool.create }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17,7 +16,6 @@ rules:
   - apiGroups: ["machine.openshift.io"]
     resources: ["machinesets"]
     verbs: ["get", "list", "create", "patch"]
-  # Job also reads the template spec's subnet/placement — same group.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -57,26 +55,27 @@ spec:
             - -c
             - |
               set -e
+              # ose-cli doesn't ship jq — install it if needed (same fix as seaweedfs jobs using jsonpath).
+              if ! command -v jq >/dev/null 2>&1; then
+                echo "Installing jq..."
+                microdnf install -y jq 2>/dev/null || yum install -y jq 2>/dev/null || dnf install -y jq 2>/dev/null || true
+              fi
               INSTANCE_TYPE={{ .Values.gpu.machinePool.instanceType | quote }}
               REPLICAS={{ .Values.gpu.machinePool.replicas }}
               ACC_LABEL={{ .Values.gpu.machinePool.acceleratorLabel | quote }}
               TAINT_KEY={{ .Values.gpu.machinePool.taintKey | quote }}
               TAINT_VAL={{ .Values.gpu.machinePool.taintValue | quote }}
-              # Pick the first ready worker-compute MachineSet as template (not ocs/zero-replica guards).
               SRC=$(oc get machineset -n openshift-machine-api -o json 2>/dev/null \
                 | jq -r '.items[] | select(.metadata.name | test("worker.*compute")) | select(.spec.replicas > 0) | .metadata.name' | head -1)
               if [ -z "$SRC" ]; then
-                # IPI fallback: first non-master machineset that has instances.
                 SRC=$(oc get machineset -n openshift-machine-api -o json 2>/dev/null | jq -r '.items[] | select(.metadata.name | test("worker")) | .metadata.name' | head -1)
               fi
-              if [ -z "$SRC" ]; then echo "No worker MachineSet found — is this a ROSA HCP (NodePool) cluster?" >&2; exit 0; fi
+              if [ -z "$SRC" ]; then echo "No worker MachineSet found — is this a ROSA HCP cluster?" >&2; exit 0; fi
               echo "Template MachineSet: $SRC"
-              # Derive GPU MachineSet name from region/AZ (like gpu-machineset.sh) to avoid collisions.
               REGION=$(oc get machineset "$SRC" -n openshift-machine-api -o json | jq -r '.spec.template.spec.providerSpec.value.placement.region // empty')
               AZ=$(oc get machineset "$SRC" -n openshift-machine-api -o json | jq -r '.spec.template.spec.providerSpec.value.placement.availabilityZone // empty')
               if [ -n "$AZ" ]; then AZ_SFX="-${AZ##*-}"; else AZ_SFX=""; fi
               NEW_NAME="gpu-${INSTANCE_TYPE}${AZ_SFX}"
-              # Shorten to DNS-1123 (max 63) if needed.
               NEW_NAME=$(echo "$NEW_NAME" | tr '_' '-' | cut -c1-63)
               if oc get machineset "$NEW_NAME" -n openshift-machine-api >/dev/null 2>&1; then
                 echo "MachineSet $NEW_NAME already exists — ensuring replicas=$REPLICAS"
