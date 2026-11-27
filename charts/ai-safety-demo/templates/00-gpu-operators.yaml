@@ -4,11 +4,8 @@ Enabled when the cluster has a GPU machine pool (provisioned outside the chart v
 rosa create machinepool or the RHDP cluster spec). When the pool is absent the operators
 still install but have nothing to schedule — harmless and verified on CPU-only clusters.
 Follows the rosa-cluster-skill Step 6 patterns (OwnNamespace OperatorGroups, PCI label
-source fix, GPU-taint toleration on nfd-worker and gpu-operator manager, ClusterPolicy
-from CSV alm-examples).
-
-Gate: gpu.enabled=true. RHDP can set this via source.helm.values or leave it off for
-CPU-only demos. A plain `helm install` also picks it up with --set gpu.enabled=true.
+source fix, GPU-taint tolerations, ClusterPolicy from CSV alm-examples).
+Gate: gpu.enabled=true.
 */ -}}
 {{- if .Values.gpu.enabled }}
 {{- /* ── NFD ── */ -}}
@@ -119,9 +116,6 @@ spec:
               echo "Timed out after {{ .Values.operators.approvalTimeoutSeconds }}s waiting for InstallPlan/CSV in $NS" >&2
               exit 1
 ---
-# NFD CR — created only after the NFD CSV is Succeeded (via the approve job above + wait).
-# PCI labelSources must be "all" on OCP 4.22 (off by default → no pci-* labels).
-# workerTolerations lets nfd-worker land on tainted GPU nodes (nvidia.com/gpu=true:NoSchedule).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -176,7 +170,6 @@ spec:
               oc rollout restart ds/nfd-worker -n {{ .Values.gpu.nfd.namespace }} 2>/dev/null || echo "nfd-worker DS not yet created, will appear shortly"
               echo "NFD configured"
 ---
-{{- /* ── NVIDIA GPU Operator ── */ -}}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -284,9 +277,6 @@ spec:
               echo "Timed out after {{ .Values.operators.approvalTimeoutSeconds }}s waiting for InstallPlan/CSV in $NS" >&2
               exit 1
 ---
-# ClusterPolicy + gpu-operator toleration patch. Runs after the GPU Operator CSV is Succeeded.
-# ClusterPolicy is extracted from the CSV's alm-examples (sets use_ocp_driver_toolkit: true — no RHEL entitlement needed).
-# The toleration patch keeps the gpu-operator manager schedulable when CPU nodes are down.
 apiVersion: batch/v1
 kind: Job
 metadata:
