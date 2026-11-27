@@ -1,0 +1,98 @@
+{{- /*
+GPU MachineSet for RHDP/IPI clusters (k9xjn): clones an existing worker-compute
+MachineSet (oc get machineset -o json | jq) and patches instanceType/accelerator
+label/taint — same primitive as local/gpu-machineset.sh but non-interactive and
+declarative. Off on ROSA (there it's a NodePool via rosa create machinepool).
+
+Gate: gpu.machinePool.create=true. Early wave so nodes land before NFD/GPU Operator.
+*/ -}}
+{{- if and .Values.gpu.enabled .Values.gpu.machinePool.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: create-gpu-machineset
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+rules:
+  - apiGroups: ["machine.openshift.io"]
+    resources: ["machinesets"]
+    verbs: ["get", "list", "create", "patch"]
+  # Job also reads the template spec's subnet/placement — same group.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: create-gpu-machineset
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.namespaces | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Values.operators.rhoai.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: create-gpu-machineset
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-gpu-machineset
+  namespace: {{ .Values.operators.rhoai.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.rhoaiConfig | quote }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+        - name: create
+          image: {{ .Values.cli.image }}
+          imagePullPolicy: {{ .Values.cli.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              INSTANCE_TYPE={{ .Values.gpu.machinePool.instanceType | quote }}
+              REPLICAS={{ .Values.gpu.machinePool.replicas }}
+              ACC_LABEL={{ .Values.gpu.machinePool.acceleratorLabel | quote }}
+              TAINT_KEY={{ .Values.gpu.machinePool.taintKey | quote }}
+              TAINT_VAL={{ .Values.gpu.machinePool.taintValue | quote }}
+              # Pick the first ready worker-compute MachineSet as template (not ocs/zero-replica guards).
+              SRC=$(oc get machineset -n openshift-machine-api -o json 2>/dev/null \
+                | jq -r '.items[] | select(.metadata.name | test("worker.*compute")) | select(.spec.replicas > 0) | .metadata.name' | head -1)
+              if [ -z "$SRC" ]; then
+                # IPI fallback: first non-master machineset that has instances.
+                SRC=$(oc get machineset -n openshift-machine-api -o json 2>/dev/null | jq -r '.items[] | select(.metadata.name | test("worker")) | .metadata.name' | head -1)
+              fi
+              if [ -z "$SRC" ]; then echo "No worker MachineSet found — is this a ROSA HCP (NodePool) cluster?" >&2; exit 0; fi
+              echo "Template MachineSet: $SRC"
+              # Derive GPU MachineSet name from region/AZ (like gpu-machineset.sh) to avoid collisions.
+              REGION=$(oc get machineset "$SRC" -n openshift-machine-api -o json | jq -r '.spec.template.spec.providerSpec.value.placement.region // empty')
+              AZ=$(oc get machineset "$SRC" -n openshift-machine-api -o json | jq -r '.spec.template.spec.providerSpec.value.placement.availabilityZone // empty')
+              if [ -n "$AZ" ]; then AZ_SFX="-${AZ##*-}"; else AZ_SFX=""; fi
+              NEW_NAME="gpu-${INSTANCE_TYPE}${AZ_SFX}"
+              # Shorten to DNS-1123 (max 63) if needed.
+              NEW_NAME=$(echo "$NEW_NAME" | tr '_' '-' | cut -c1-63)
+              if oc get machineset "$NEW_NAME" -n openshift-machine-api >/dev/null 2>&1; then
+                echo "MachineSet $NEW_NAME already exists — ensuring replicas=$REPLICAS"
+                oc scale machineset "$NEW_NAME" -n openshift-machine-api --replicas="$REPLICAS" 2>/dev/null || \
+                  oc patch machineset "$NEW_NAME" -n openshift-machine-api --type merge -p "{\"spec\":{\"replicas\":$REPLICAS}}"
+                exit 0
+              fi
+              echo "Creating MachineSet $NEW_NAME (instanceType=$INSTANCE_TYPE replicas=$REPLICAS taint=$TAINT_KEY:NoSchedule)"
+              oc get machineset "$SRC" -n openshift-machine-api -o json | jq --arg INSTANCE_TYPE "$INSTANCE_TYPE" --arg NEW_NAME "$NEW_NAME" --arg ACC_LABEL "$ACC_LABEL" --arg TAINT_KEY "$TAINT_KEY" --arg TAINT_VAL "$TAINT_VAL" --argjson REPLICAS "$REPLICAS" '
+                (.metadata.name) |= $NEW_NAME |
+                (.spec.replicas) |= $REPLICAS |
+                (.spec.selector.matchLabels["machine.openshift.io/cluster-api-machineset"]) |= $NEW_NAME |
+                (.spec.template.metadata.labels["machine.openshift.io/cluster-api-machineset"]) |= $NEW_NAME |
+                (.spec.template.spec.providerSpec.value.instanceType) |= $INSTANCE_TYPE |
+                (.spec.template.spec.metadata.labels["cluster-api/accelerator"]) |= $ACC_LABEL |
+                (.spec.template.spec.taints) |= [{ "effect": "NoSchedule", "key": $TAINT_KEY, "value": $TAINT_VAL }]
+              ' | oc apply -f -
+              echo "MachineSet $NEW_NAME created — nodes will Join then go Ready"
+{{- end }}

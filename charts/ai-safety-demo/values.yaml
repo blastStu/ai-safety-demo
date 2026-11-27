@@ -40,14 +40,23 @@ operators:
     startingCSV: rhods-operator.3.6.0-ea.2
 
 # GPU stack — NFD + NVIDIA GPU Operator. Enable when the cluster has a GPU machine pool.
-# The pool itself is provisioned outside the chart (rosa create machinepool or RHDP cluster spec);
-# the chart installs the operators that expose nvidia.com/gpu as a schedulable resource.
 gpu:
   enabled: false
+  # For RHDP/IPI clusters (k9xjn) the chart can create the GPU MachineSet itself
+  # (oc get machineset → jq clone) so a bare RHDP lease comes up 2+2 declaratively.
+  # For ROSA HCP the pool is provisioned outside the chart (rosa create machinepool).
+  # The chart then installs the operators that expose nvidia.com/gpu as a schedulable resource.
+  machinePool:
+    create: false
+    instanceType: g6e.2xlarge
+    replicas: 2
+    # accelerator label taint on the GPU nodes — matches NFD + GPU Operator tolerations
+    taintKey: nvidia.com/gpu
+    taintValue: ""
+    acceleratorLabel: NVIDIA-L40S-SHARED
   nfd:
     namespace: openshift-nfd
     channel: stable
-    # Pin to the current defaultChannel at time of chart cut; override via --set if the catalog moves.
     startingCSV: nfd.4.22.0
   gpuOperator:
     namespace: nvidia-gpu-operator
