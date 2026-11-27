@@ -1,72 +1,110 @@
-# AI Safety Demo — notes for the coding agent
+# AI Safety Demo — how to run it (for the agent in this repo)
 
-You are working on the **GitOps source for an RHDP catalog item** (and matching AI
-Quickstart) that puts a live AI-safety demo on OpenShift AI: red-team a model with
-Garak, put NeMo Guardrails in front, red-team again, compare. Audience: security teams.
+You are probably here to **run the demo**, not to extend this repo. This file is the
+agent's runbook — keep it short, keep it accurate, and point at the canonical docs.
 
-## Current state (what the cluster is right now)
+## What this is
 
-- **Reference cluster:** bare OpenShift (no RHOAI, no NFD/GPU Operator) with **2 CPU + 2 GPU
-  worker nodes**. The stack provisions everything from that starting point. The previous
-  V1.1 baseline was CPU-only on `stable-3.5` / `rhods-operator.3.5.3`; the current target
-  is below.
-- **Target operator set:** RHOAI **3.6 EA2** — `beta` channel, CSV `rhods-operator.3.6.0-ea.2`
-  (GA will move to `stable-3.6`; bump both `charts/ai-safety-demo/values.yaml` and
-  `manifests/10-rhoai/rhods-operator/subscription.yaml` when you do). Dashboard flag
-  `modelCapabilities: true` (3.6+) is already wired.
-- **GPU:** NFD + NVIDIA GPU Operator, controlled by `gpu.enabled` in the Helm chart and
-  `scripts/01b-setup-gpu.sh` for the script path. Both follow `rosa-cluster-skill` Step 6:
-  OwnNamespace OperatorGroups, `labelSources: [all]` PCI fix, `nvidia.com/gpu=true:NoSchedule`
-  tolerations, ClusterPolicy from CSV `alm-examples`, manager toleration patch.
-- **Rest of stack:** DSPA (Kubeflow Pipelines v2) + SeaweedFS (S3 on ghcr.io digest) + Postgres
-  → MLflow v1 → TrustyAIService + EvalHub `garak-kfp` + benchmark JSON.
+A Red Hat Demo Platform (RHDP) catalog item — also a standalone AI Quickstart — that
+gives field folks a live **AI safety** demo: red-team a model with Garak via EvalHub,
+put NeMo Guardrails in front, red-team again, compare. Audience: security teams (or
+similar) who own model safety. Session: one time-boxed run, "unprotected vs protected",
+two MLflow reports side by side.
 
-## How to run it
+The demo is intentionally narrow in 2026-11: bare OpenShift with **2 CPU + 2 GPU**
+worker nodes → **RHOAI 3.6 EA2** (`beta` / `rhods-operator.3.6.0-ea.2`) → NFD + NVIDIA
+GPU Operator (GPU becomes `nvidia.com/gpu` schedulable) → DSPA + SeaweedFS (S3) + Postgres
+→ MLflow + TrustyAIService + **EvalHub `garak-kfp`** (`intents` benchmark: SDG →
+Baseline → SPO → TAP, with the current JSON it's `intents_models` all-or-one and
+`sdg_max_concurrency: 1`). Guardrails is next, self-contained vLLM after that.
 
-There are **two deployment paths that must stay in sync** — never break one while fixing the other.
+## Before you touch anything
 
-**Scripts (learning / step-through):** ordered under `scripts/`, each `set -euo pipefail` and
-idempotent with a `Ready`/`Available` gate. See [README.md](README.md#path-1--scripts-learning-experience)
-for the exact sequence: `00-check` → `01-prereqs` (cert-manager+Kueue) → `01b-gpu` (NFD+GPU, skips on
-CPU-only) → `02-dsc` (install RHOAI 3.6 EA2 from `beta`, patch DSC+dashboard) → `03-dspa+mlflow` →
-`04-evalhub` → `05-garak`. `local/` files are gitignored scratch — never commit them.
+1. **Read [README.md](README.md) once.** It is the runbook for both deployment paths
+   (scripts vs Helm) and matches the current `helm-v1.1` commit. Do not repeat its install
+   commands here — link to it. This file only adds agent-specific orientation.
+2. Check your environment variables before assuming defaults. The user's actual
+   credentials may differ from placeholders.
 
-**Helm (one-shot + RHDP):** [`charts/ai-safety-demo/`](charts/ai-safety-demo/) — `helm upgrade --install … --set gpu.enabled=true`
-on the 2+2 cluster; RHDP points `targetRevision`/`path` at this chart with
-`source.helm.values.gpu.enabled: true` (and `bases.rhoai` when it pre-installs RHOAI). See
-[charts/ai-safety-demo/README.md](charts/ai-safety-demo/README.md) for values and Argo sync-wave details.
-Wave-3 `wait-for-rhoai-crds` + `SkipDryRunOnMissingResource` on the four CRs handle bare-cluster validation.
+## Starting point / cluster shape
 
-**Overlays:** `overlays/rhdp` + `overlays/dev` are thin Kustomize wrappers for `oc apply -k`
-debugging; `manifests/argocd/application.yaml` is a standalone Argo Application. They are
-kept but the Helm chart is the canonical RHDP path.
+- You will be handed **bare OpenShift** (no RHOAI, no NFD/GPU Operator) with 2 CPU + 2 GPU nodes
+  — or a ROSA HCP / RHDP lease that looks the same. Confirm once:
+  ```bash
+  oc whoami --show-server
+  oc get nodes -o wide   # expect 4 workers; GPU ones are g6.xlarge (or similar)
+  ```
+- The repo's scripts and Helm chart both install from that starting point. Don't try to
+  pre-install RHOAI, cert-manager, NFD, or the GPU Operator by hand — the setup below does it.
+  RHOAI 3.6 EA2 docs live under the **3.5 documentation root** (upstream quirk); if you go read
+  docs, use the 3.6 EA release notes there. Don't chase a floating `main` of upstream odh-gitops.
 
-## What to do when touching this repo
+## How to stand it up
 
-1. Read [README.md](README.md) first — it is the runbook for both paths. Keep it current when
-   you change scripts, chart values, or the target cluster shape.
-2. Keep `values.yaml` and `manifests/10-rhoai/rhods-operator/subscription.yaml` + `manifests/10-rhoai/patch-dsc-job.yaml`
-   in sync (channel/CSV + dashboard flags) — drift between Helm and Kustomize already bit us once
-   (`modelCapabilities` missing from the Kustomize ConfigMap, caught in review B1).
-3. Never hardcode a `packagemanifest` channel/CSV — derive live with
-   `oc get packagemanifest <pkg> -n openshift-marketplace` and record pins + date in
-   `local/decisions.md` (audit trail, gitignored but shareable on request).
-4. NFD/GPU Operator changes must follow `rosa-cluster-skill` Step 6 (OwnNamespace OGs, PCI
-   labelSources, taint tolerations, ClusterPolicy extraction). The skill is not vendored —
-   reference https://github.com/blastStu/rosa-cluster-skill.
-5. Secrets (`redteam-api-keys`, S3 creds) are never in git — scripts create them imperatively,
-   the chart creates the S3-derived copies via Jobs. Don't template `redteam-api-keys`.
-6. Before pushing: `helm lint --strict charts/ai-safety-demo` (also with `--set gpu.enabled=true`)
-   and `bash -n scripts/*.sh`. The chart must render 57 kinds without GPU, 71 with.
-7. Commits are on `helm-v1.1` (current workstream); end messages with `Co-Authored-By: Claude Code <noreply@anthropic.com>`.
+Pick **one** path. Don't mix them on the same cluster.
 
-## Local docs (gitignored, not authoritative after the README)
+**A — Scripts (learning / step-through, recommended when you're driving live):**
+Follow [README → Path 1](README.md#path-1--scripts-learning-experience) in order:
+`00-check` (sanity check, GPU count, packagemanifest) → `01-prereqs` →
+`01b-gpu` (auto-skips on CPU-only) → `02-dsc` (installs RHOAI 3.6 EA2, patches DSC +
+dashboard) → `03-dspa+mlflow` → `04-evalhub`. Every step has a `Ready`/`Available` gate;
+let it finish before the next one. `00-check` saying "No DataScienceCluster yet" on a
+bare cluster is expected.
 
-- `local/HANDOFF.md` — older orientation (2026-11-20, describes the 3.5.3 `sbatters-gitops` cluster).
-  Still useful for demo narrative and RHDP catalog context, but operator versions/worker shape are stale.
-- `local/decisions.md` — operator pin journal (now 3.6 EA2; update when you re-derive).
-- `local/v1.1-walkthrough.md` — narrative script for the before-half demo. Update if the
-  benchmark endpoints change for 3.6 (they haven't).
-- `local/NEXT-STEP-RESULT-2026-11-27.md` — what the 3.6+GPU commit (95e1623) did and what still
-  needs a live cluster run.
+**B — Helm (one-shot / RHDP / CI):**
+Follow [README → Path 2](README.md#path-2--helm-one-shot--rhdp) — `helm upgrade --install
+ai-safety-demo charts/ai-safety-demo --set gpu.enabled=true` on the 2+2 cluster. RHDP
+wires `gpu.enabled: true` via `source.helm.values`; the chart's wave-3 CRD gate +
+`SkipDryRunOnMissingResource` handles the bare-cluster Argo validation case. See
+[charts/ai-safety-demo/README.md](charts/ai-safety-demo/README.md) for all `values.yaml` knobs.
+
+Either path, the cluster is ready when:
+```bash
+oc get datasciencecluster default-dsc -o jsonpath='{.status.phase}{"\n"}'          # Ready
+oc get dspa dspa -n evalhub -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}{"\n"}'
+oc get mlflow mlflow -n redhat-ods-applications -o jsonpath='{.status.conditions[?(@.type=="Available")].status}{"\n"}'
+oc get evalhub evalhub -n evalhub -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}{"\n"}'
+oc get nodes -o json | jq -r '.items[] | "\(.metadata.name): nvidia.com/gpu=\(.status.allocatable["nvidia.com/gpu"] // "none")"'
+```
+
+## Running the demo itself
+
+1. **Put the secret in.** `redteam-api-keys` in `evalhub` (8 keys: `api-key` plus
+   `TARGET/JUDGE/EVALUATOR` + `SDG/ATTACKER` + `k8s_url`/`k8s_sa_token`) is never in git —
+   create it imperatively after `04-evalhub.sh` per [README → Secrets](README.md#secrets--never-committed).
+   The dashboard's **Validate connection** against `api-key` is what proves it.
+2. **Upload the benchmark.** In the RHOAI dashboard: Develop & train → Evaluations →
+   Start evaluation run → `garak-kfp` → `intents` → Upload → [`benchmarks/intents-garak-kfp.json`](benchmarks/intents-garak-kfp.json).
+   Replace the `YOUR_*` endpoint placeholders first (see the file's `kfp_config` / `intents_models`
+   / `sdg_max_concurrency`).
+3. **Tell the room the comparison contract:** hold target model, Garak config, judge, and prompt
+   seed constant. Call the workflow **Garak + SDG** (not TAP in deck material); the abliterated
+   model is the SDG generator, never the assessment target. If SDG regenerates prompts per run,
+   say so when reading the delta.
+4. **Read it back in MLflow** — `https://$(oc get route rhods-dashboard -n redhat-ods-applications -o jsonpath='{.spec.host}')/mlflow`.
+
+`scripts/05-run-garak.sh` is the same flow via `curl` against `https://<evalhub-route>/api/v1/evaluations/jobs`.
+
+## Things that bite
+
+- NFD's `labelSources: [all]` PCI fix + `oc rollout restart ds/nfd-worker` and the GPU
+  toleration / ClusterPolicy extraction are already wired (scripts + chart) — don't re-add them
+  by hand. Check `pci-*` labels and `nvidia.com/gpu` allocatable instead.
+- `oc apply --dry-run=server` on a bare cluster will complain about DSC/EvalHub CRDs until RHOAI
+  CSVs are Succeeded — expected. The chart's Argo gate handles this; for scripts, finish `02` first.
+- The Dashboard Evaluations page is hidden unless `disableLMEval: false` + `externalModels: true` +
+  `modelCapabilities: true` are set — they are in the patched `OdhDashboardConfig`; a browser refresh
+  is enough.
+- 3.6 GA will move RHOAI from `beta` to `stable-3.6` with a new CSV — bump both
+  `charts/ai-safety-demo/values.yaml` and `manifests/10-rhoai/rhods-operator/subscription.yaml` then.
+
+## For the rare maintainer pass (not your day job here)
+
+If you're actually changing this repo, not just running it: keep Helm and Kustomize pins in sync
+(channel/CSV + dashboard flags), derive `packagemanifest` channels live (don't hardcode), don't
+template `redteam-api-keys`, and run `helm lint --strict` (also ` --set gpu.enabled=true`) plus
+`bash -n scripts/*.sh` before pushing. Commits on `helm-v1.1` end with
+`Co-Authored-By: Claude Code <noreply@anthropic.com>`. Gitignored scratch lives in `local/`
+(HANDOFF there still describes the 2026-11-20 `sbatters-gitops` 3.5.3 cluster — narrative is fine,
+versions are stale).
 
