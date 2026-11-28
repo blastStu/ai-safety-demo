@@ -43,6 +43,10 @@ metadata:
     ai-safety-demo/revision: "2"
 data:
   dsc-patch.yaml: |
+    apiVersion: datasciencecluster.opendatahub.io/v2
+    kind: DataScienceCluster
+    metadata:
+      name: default-dsc
     spec:
       components:
         aipipelines:
