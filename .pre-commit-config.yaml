@@ -1,0 +1,13 @@
+# Credential leak prevention (proxy for Red Hat rh-pre-commit — internal package not on PyPI).
+# Blocks private keys, high-entropy secrets, and large files before they reach GitHub.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.95.3
+    hooks:
+      - id: trufflehog
+        args: [--only-verified, --no-update]
