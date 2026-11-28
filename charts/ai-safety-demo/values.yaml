@@ -49,7 +49,7 @@ gpu:
     instanceType: g6e.2xlarge
     replicas: 2
     taintKey: nvidia.com/gpu
-    taintValue: ""
+    taintValue: "true"
     acceleratorLabel: NVIDIA-L40S-SHARED
   nfd:
     namespace: openshift-nfd
