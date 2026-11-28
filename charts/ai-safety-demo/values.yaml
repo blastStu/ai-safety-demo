@@ -156,7 +156,7 @@ mlflow:
   s3SecretName: mlflow-s3-credentials
 
 models:
-  enabled: false
+  enabled: true
   namespace: rhoai-model-serving
   gemma:
     storageUri: hf://huihui-ai/gemma-3-12b-it-abliterated
