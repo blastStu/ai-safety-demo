@@ -106,6 +106,12 @@ spec:
               src['spec']['selector']['matchLabels']['machine.openshift.io/cluster-api-machineset']=new_name
               src['spec']['template']['metadata']['labels']['machine.openshift.io/cluster-api-machineset']=new_name
               src['spec']['template']['spec']['providerSpec']['value']['instanceType']=instance_type
+              # bump root volume for large modelcars (e.g. qwen 37GB) + ephemeral cache
+              try:
+                  for bd in src['spec']['template']['spec']['providerSpec']['value'].get('blockDevices', []):
+                      if 'ebs' in bd and 'volumeSize' in bd['ebs']:
+                          bd['ebs']['volumeSize']=300
+              except: pass
               if 'metadata' not in src['spec']['template']['spec']:
                   src['spec']['template']['spec']['metadata']={}
               if 'labels' not in src['spec']['template']['spec']['metadata']:
